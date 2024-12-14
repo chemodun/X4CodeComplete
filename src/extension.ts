@@ -1,16 +1,16 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-import { print, TextDecoder } from 'util';
-import { type } from 'os';
-var fs = require('fs');
-var parser = require('xml2js');
-var xpath = require("xml2js-xpath");
+import * as fs from 'fs';
+import * as xml2js from 'xml2js';
+import * as xpath from 'xml2js-xpath';
+
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 var exceedinglyVerbose: boolean = false;
 var rootpath: string;
 var scriptPropertiesPath: string;
+
 
 function findRelevantPortion(text: string){
 	let pos = Math.max(text.lastIndexOf("."), text.lastIndexOf('"',text.length-2));
@@ -42,22 +42,21 @@ class TypeEntry {
 	}
 }
 
-class CompletionDict implements vscode.CompletionItemProvider
-{
-	typeDict: Map<string,TypeEntry> = new Map<string,TypeEntry>();
-	addType(key:string, supertype?:string): void{
+class CompletionDict implements vscode.CompletionItemProvider {
+	typeDict: Map<string, TypeEntry> = new Map<string, TypeEntry>();
+	addType(key: string, supertype?: string): void {
 		let k = cleanStr(key);
 		var entry = this.typeDict.get(k);
 		if (entry === undefined) {
 			entry = new TypeEntry();
 			this.typeDict.set(k, entry);
 		}
-		if (supertype !== "datatype"){
-			entry.supertype=supertype;
+		if (supertype !== "datatype") {
+			entry.supertype = supertype;
 		}
 	}
 
-	addTypeLiteral(key:string, val:string): void{
+	addTypeLiteral(key: string, val: string): void {
 		let k = cleanStr(key);
 		let v = cleanStr(val);
 		var entry = this.typeDict.get(k);
@@ -68,7 +67,7 @@ class CompletionDict implements vscode.CompletionItemProvider
 		entry.addLiteral(v);
 	}
 
-	addProperty(key:string,prop:string, type?:string): void{
+	addProperty(key: string, prop: string, type?: string): void {
 		let k = cleanStr(key);
 		var entry = this.typeDict.get(k);
 		if (entry === undefined) {
@@ -79,46 +78,46 @@ class CompletionDict implements vscode.CompletionItemProvider
 	}
 
 
-	addItem(items: Map<string,vscode.CompletionItem>, complete:string, info?:string): void{
+	addItem(items: Map<string, vscode.CompletionItem>, complete: string, info?: string): void {
 		// TODO handle better
-		if (["","boolean","int","string","list","datatype"].indexOf(complete)>-1){
+		if (["", "boolean", "int", "string", "list", "datatype"].indexOf(complete) > -1) {
 			return;
-		} 
+		}
 
-		if (items.has(complete)){
-			if (exceedinglyVerbose){
-				console.log("\t\tSkipped existing completion: ",complete);
+		if (items.has(complete)) {
+			if (exceedinglyVerbose) {
+				console.log("\t\tSkipped existing completion: ", complete);
 			}
 			return;
 		}
 
 		
 		let result = new vscode.CompletionItem(complete);
-		if (info !== undefined){
+		if (info !== undefined) {
 			result.detail = info;
 		} else {
 			result.detail = complete;
 		}
-		if (exceedinglyVerbose){
-			console.log("\t\tAdded completion: "+complete+" info: "+result.detail);
+		if (exceedinglyVerbose) {
+			console.log("\t\tAdded completion: " + complete + " info: " + result.detail);
 		}
 		items.set(complete, result);
-	}		
-	buildProperty(prefix:string, typeName: string, propertyName: string, propertyType:string, items: Map<string,vscode.CompletionItem>, depth:number){
+	}
+	buildProperty(prefix: string, typeName: string, propertyName: string, propertyType: string, items: Map<string, vscode.CompletionItem>, depth: number) {
 		// TODO handle better
-		if (["","boolean","int","string","list","datatype"].indexOf(propertyName)>-1){
+		if (["", "boolean", "int", "string", "list", "datatype"].indexOf(propertyName) > -1) {
 			return;
-		} 		
-		// TODO handle better
-		if (["","boolean","int","string","list","datatype"].indexOf(typeName)>-1){
-			return;
-		} 
-		if (exceedinglyVerbose) {
-            console.log("\tBuilding Property", typeName+"."+propertyName,"depth: ", depth, "prefix: ", prefix);
 		}
-		let completion:string;
-		if (prefix !==""){
-			completion = prefix+"."+cleanStr(propertyName);
+		// TODO handle better
+		if (["", "boolean", "int", "string", "list", "datatype"].indexOf(typeName) > -1) {
+			return;
+		}
+		if (exceedinglyVerbose) {
+			console.log("\tBuilding Property", typeName + "." + propertyName, "depth: ", depth, "prefix: ", prefix);
+		}
+		let completion: string;
+		if (prefix !== "") {
+			completion = prefix + "." + cleanStr(propertyName);
 		} else {
 			completion = propertyName;
 		}
@@ -134,54 +133,54 @@ class CompletionDict implements vscode.CompletionItemProvider
 		// 		return;
 		// 	});
 		// } else {
-			this.addItem(items, completion, typeName +"."+propertyName);
-			this.buildType(completion, propertyType, items, depth+1);
+		this.addItem(items, completion, typeName + "." + propertyName);
+		this.buildType(completion, propertyType, items, depth + 1);
 		// }
 	}
 
-	buildType(prefix:string, typeName: string, items: Map<string,vscode.CompletionItem>, depth:number): void{
+	buildType(prefix: string, typeName: string, items: Map<string, vscode.CompletionItem>, depth: number): void {
 		// TODO handle better
-		if (["","boolean","int","string","list","datatype"].indexOf(typeName)>-1){
+		if (["", "boolean", "int", "string", "list", "datatype"].indexOf(typeName) > -1) {
 			return;
-		} 
-		if (exceedinglyVerbose){
-			console.log("Building Type: ", typeName, "depth: ",depth, "prefix: ", prefix);
+		}
+		if (exceedinglyVerbose) {
+			console.log("Building Type: ", typeName, "depth: ", depth, "prefix: ", prefix);
 		}
 		let entry = this.typeDict.get(typeName);
-		if (entry === undefined){
+		if (entry === undefined) {
 			return;
 		}
-		if (depth > 1){
-			if (exceedinglyVerbose){
+		if (depth > 1) {
+			if (exceedinglyVerbose) {
 				console.log("\t\tMax depth reached, returning");
 			}
 			return;
 		}
 
-		if (depth > -1 && prefix !==""){
+		if (depth > -1 && prefix !== "") {
 			this.addItem(items, typeName);
 		}
 
-		if (items.size > 1000){
-			if (exceedinglyVerbose){
+		if (items.size > 1000) {
+			if (exceedinglyVerbose) {
 				console.log("\t\tMax count reached, returning");
 			}
 			return;
 		}
 	
 		for (const prop of entry.properties.entries()) {
-			this.buildProperty(prefix, typeName, prop[0],prop[1], items, depth+1);
+			this.buildProperty(prefix, typeName, prop[0], prop[1], items, depth + 1);
 		}
-		if (entry.supertype !==undefined){
-			if (exceedinglyVerbose){
+		if (entry.supertype !== undefined) {
+			if (exceedinglyVerbose) {
 				console.log("Recursing on supertype: ", entry.supertype);
 			}
-			this.buildType(typeName, entry.supertype, items, depth+1);
+			this.buildType(typeName, entry.supertype, items, depth + 1);
 		}
 	}
-	makeCompletionList(items:Map<string,vscode.CompletionItem>):
-	vscode.CompletionList{
-		return new vscode.CompletionList(Array.from(items.values()),true);
+	makeCompletionList(items: Map<string, vscode.CompletionItem>):
+		vscode.CompletionList {
+		return new vscode.CompletionList(Array.from(items.values()), true);
 	}
 
 	provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
@@ -263,7 +262,6 @@ class CompletionDict implements vscode.CompletionItemProvider
 		return this.makeCompletionList(items);
 	}
 }
-	
 
 
 class LocationDict implements vscode.DefinitionProvider
@@ -322,17 +320,20 @@ function readScriptProperties(filepath: string){
 	console.log("Attempting to read scriptproperties.xml");
 	// Can't move on until we do this so use sync version
 	let rawData = fs.readFileSync(filepath).toString();
-	parser.parseString(rawData, function (err: any, result:any) {
+	let keywords = [] as any[]
+	let datatypes = [] as any[]
+
+	xml2js.parseString(rawData, function (err: any, result:any) {
 		if (err !== null){
 			vscode.window.showErrorMessage("Error during parsing of scriptproperties.xml:" + err);
 		}
 
-		let keywords = result["scriptproperties"]["keyword"];
+		keywords = result["scriptproperties"]["keyword"];
 		for (let i = 0; i < keywords.length; i++) {
 			processKeyword(rawData, keywords[i]);
 		}
 
-		let datatypes = result["scriptproperties"]["datatype"];
+		datatypes = result["scriptproperties"]["datatype"];
 		for (let j = 0; j < datatypes.length; j++) {
 			processDatatype(rawData, datatypes[j]);
 		}
@@ -340,6 +341,7 @@ function readScriptProperties(filepath: string){
 		completionProvider.addTypeLiteral("boolean","==false");
 		console.log("Parsed scriptproperties.xml");
 	});
+	return { keywords, datatypes }
 }
 
 
@@ -372,6 +374,7 @@ interface Keyword{
 		name: string;
 		type?: string;
 		pseudo?: string;
+		description?: string;
 	};
 	property?:[ScriptProperty];
 	import?:[{
@@ -410,11 +413,11 @@ interface XPathResult{
 	$:{[key:string]: string};
 }
 function processKeywordImport(name:string, src: string, select:string, targetName: string){
-	let path = rootpath+ "libraries/"+src;
-	console.log("Attempting to import"+src);
+	let path = rootpath+ "/libraries/"+src;
+	console.log("Attempting to import: "+src);
 	// Can't move on until we do this so use sync version
 	let rawData = fs.readFileSync(path).toString();
-	parser.parseString(rawData, function (err: any, result:any) {
+	xml2js.parseString(rawData, function (err: any, result:any) {
 		if (err !== null){
 			vscode.window.showErrorMessage("Error during parsing of " + src+ err);
 		}
@@ -431,6 +434,7 @@ interface Datatype {
 	$:{
 		name: string;
 		type?: string;
+		suffix?: string;
 	};
 	property?:[ScriptProperty];
 }
@@ -448,36 +452,197 @@ function processDatatype(rawData: any, e: Datatype){
 }
 
 
+function generateKeywordText(keyword: any, datatypes: Datatype[], parts: string[]): string {
+  const description = keyword.$.description;
+  const pseudo = keyword.$.pseudo;
+  const suffix = keyword.$.suffix;
+  const result = keyword.$.result;
+  let hoverText = `Keyword: ${keyword.$.name}\n
+  ${description ? 'Description: ' + description + '\n' : ''}
+  ${pseudo ? 'Pseudo: ' + pseudo + '\n' : ''}
+  ${result ? 'Result: ' + result + '\n' : ''}
+  ${suffix ? 'Suffix: ' + suffix + '\n' : ''}`;
+  
+	let name = keyword.$.name;
+  let currentPropertyList: ScriptProperty[] = keyword.property;
+	let updated = false;
+  // Iterate over parts of the path (excluding the first part which is the keyword itself)
+  for (let i = 1; i < parts.length; i++) {
+    let properties: ScriptProperty[] = [];
+    // For the last part, we use 'includes' to match the property
+    if (i === parts.length - 1) {
+      properties = currentPropertyList.filter((p: ScriptProperty) => p.$.name.includes(parts[i]));
+    } else {
+      // For all other parts, check each type and find properties matching the part
+      properties = currentPropertyList.filter((p: ScriptProperty) => p.$.name === parts[i]);
+      
+      if (properties.length === 0 && currentPropertyList.length > 0) {
+        // If no properties match the current part, iterate over each datatype to find a matching type
+        currentPropertyList.forEach((property) => {
+          if (property.$.type) {
+            const type = datatypes.find((d: Datatype) => d.$.name === property.$.type);
+            if (type && type.property) {
+              // Add the properties from the matching type to the current list
+              properties.push(...type.property.filter((p: ScriptProperty) => p.$.name === parts[i]));
+            }
+          }
+        });
+      }
+    }
+
+    if (properties.length > 0) {
+      // Iterate through all the matched properties and add them to hoverText
+      properties.forEach((property) => {
+				hoverText += `\n\n- ${name}.${property.$.name}: ${property.$.result}`;
+				updated = true;
+
+        if (property.$.type) {
+          const type = datatypes.find((d: Datatype) => d.$.name === property.$.type);
+          if (type) {
+            if (type.property) {
+              currentPropertyList = type.property;
+            }
+          }
+        }
+			});
+		}
+		name += '.' + parts[i]
+  }
+	if (updated) {
+		return hoverText;
+	} else {
+		return '';
+	}
+}
+
+
+function generateHoverWordText(hoverWord: string, keywords: Keyword[], datatypes: Datatype[]): string {
+	let hoverText = '';
+	const matchingKeynames = keywords.filter((k: any) =>
+		k.property?.some((p: ScriptProperty) => p.$.name.includes(hoverWord))
+	);
+	const matchingDatatypes = datatypes.filter((d: any) =>
+		d.property?.some((p: ScriptProperty) => p.$.name.includes(hoverWord))
+	);
+	let suggestions = '';
+	if (matchingKeynames.length > 0) {
+		suggestions = matchingKeynames
+			.map((k: Keyword) => {
+				// Find the properties matching the hover part of the path
+				const properties = k.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord));
+
+				if (properties && properties.length > 0) {
+					// Iterate through all the matched properties
+					return properties
+						.map((possibleProperty) => {
+							if (possibleProperty && possibleProperty.$.result.length > 0) {
+								return `- ${k.$.name}.${possibleProperty.$.name}: ${possibleProperty.$.result}`;
+							}
+							return null;
+						})
+						.filter((suggestion) => suggestion !== null) // Remove null results
+						.join('\n'); // Join the properties into a single string
+				}
+				return ''; // Return empty string if no matches
+			})
+			.filter((suggestion) => suggestion !== '') // Remove empty strings
+			.join('\n'); // Join all suggestions into a single string
+	}
+
+	if (matchingDatatypes.length > 0) {
+		if (suggestions !== '') {
+			suggestions += '\n';
+		}
+		suggestions += matchingDatatypes
+			.map((d: Datatype) => {
+				// Find the property matching the hover part of the path
+				const properties = d.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord));
+
+				if (properties && properties.length > 0) {
+					// Iterate through all the matched properties
+					return properties
+						.map((possibleProperty) => {
+							if (possibleProperty && possibleProperty.$.result.length > 0) {
+								return `- ${d.$.name}.${possibleProperty.$.name}: ${possibleProperty.$.result}`;
+							}
+							return null;
+						})
+						.filter((suggestion) => suggestion !== null) // Remove null results
+						.join('\n'); // Join the properties into a single string
+				}
+				return ''; // Return empty string if no matches
+			})
+			.filter((suggestion) => suggestion !== '') // Remove empty strings
+			.join('\n'); // Join all suggestions into a single string
+	}
+	if (suggestions !== '') {
+		suggestions = suggestions.split('\n').sort().join('\n');
+		hoverText += `\n\nPossible matches found for '${hoverWord}':\n${suggestions}`;
+	}
+	return hoverText;
+}
 
 export function activate(context: vscode.ExtensionContext) {
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	let config = vscode.workspace.getConfiguration("x4CodeComplete");
-	if (config === undefined){
-		vscode.window.showErrorMessage("Could not read config!");
-		return;
-	}
+  let config = vscode.workspace.getConfiguration("x4CodeComplete");
+  if (config === undefined) {
+    vscode.window.showErrorMessage("Could not read config!");
+    return;
+  }
 
-	rootpath = config["unpackedFileLocation"];
-	// really, typescript??? really?? https://stackoverflow.com/a/16215800
-	if (rootpath === "") {
-		vscode.window.showErrorMessage("You must configure the path to unpacked files! Do so & restart VS Code!");
-		return;
-	}
-	exceedinglyVerbose = config["exceedinglyVerbose"];
-	scriptPropertiesPath = rootpath + "libraries/scriptproperties.xml";
-	readScriptProperties(scriptPropertiesPath);
+  rootpath = config["unpackedFileLocation"];
+  if (rootpath === "") {
+    vscode.window.showErrorMessage("You must configure the path to unpacked files! Do so & restart VS Code!");
+    return;
+  }
 
-	let sel: vscode.DocumentSelector = { language: 'xml' };
-	
-	let disposableCompleteProvider = vscode.languages.registerCompletionItemProvider(sel, completionProvider,".","\"","{");
+  exceedinglyVerbose = config["exceedinglyVerbose"];
+	scriptPropertiesPath = rootpath + "/libraries/scriptproperties.xml";
+	let keywords = [] as Keyword[];
+	let datatypes = [] as Keyword[];
+	({ keywords, datatypes } = readScriptProperties(scriptPropertiesPath));
+	console.log(keywords);
+	console.log(datatypes);
 
-	context.subscriptions.push(disposableCompleteProvider);
-	
-	let disposableDefinitionProvider = vscode.languages.registerDefinitionProvider(sel, definitionProvider);
-	context.subscriptions.push(disposableDefinitionProvider);
+  let sel: vscode.DocumentSelector = { language: 'xml' };
+
+  let disposableCompleteProvider = vscode.languages.registerCompletionItemProvider(sel, completionProvider, ".", "\"", "{");
+  context.subscriptions.push(disposableCompleteProvider);
+
+  let disposableDefinitionProvider = vscode.languages.registerDefinitionProvider(sel, definitionProvider);
+  context.subscriptions.push(disposableDefinitionProvider);
+
+  // Hover provider to display tooltips
+	context.subscriptions.push(
+		vscode.languages.registerHoverProvider(sel, {
+			provideHover: async (document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Hover | undefined> => {
+				const hoverWord = document.getText(document.getWordRangeAtPosition(position));
+				const phraseRegex = /([.]?[$@]?[a-zA-Z0-9_-{}]+)+/g;
+				const phrase = document.getText(document.getWordRangeAtPosition(position, phraseRegex));
+				const hoverWordIndex = phrase.lastIndexOf(hoverWord);
+				const slicedPhrase = phrase.slice(0, hoverWordIndex + hoverWord.length);
+				const parts = slicedPhrase.split('.');
+				// Extract the first part of the word and remove any leading `$ or @`
+				const firstPart = parts[0].startsWith('$') || parts[0].startsWith('@') ? parts[0].slice(1) : parts[0];
+
+				// Find matching keyword
+				let hoverText = '';
+				let keyword = keywords.find((k: Keyword) => k.$.name === firstPart);
+				if (!keyword) {
+					keyword = datatypes.find((d: Datatype) => d.$.name === firstPart);
+				}
+
+				// Generate hover text
+				if (keyword && firstPart !== hoverWord) {
+					hoverText = generateKeywordText(keyword, datatypes, parts);
+				}
+				if (!hoverText.includes(keyword+':') || firstPart === hoverWord) {
+					hoverText += generateHoverWordText(hoverWord,	keywords, datatypes);
+				}
+				return hoverText !== '' ? new vscode.Hover(hoverText) : undefined;
+			},
+		})
+	);
 }
 
 // this method is called when your extension is deactivated
