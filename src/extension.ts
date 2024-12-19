@@ -5,8 +5,10 @@ import * as fs from 'fs';
 import * as xml2js from 'xml2js';
 import * as xpath from 'xml2js-xpath';
 
+
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
+var debug = false;
 var exceedinglyVerbose: boolean = false;
 var rootpath: string;
 var scriptPropertiesPath: string;
@@ -316,32 +318,29 @@ class LocationDict implements vscode.DefinitionProvider
 
 let completionProvider = new CompletionDict();
 let definitionProvider = new LocationDict();
-function readScriptProperties(filepath: string){
-	console.log("Attempting to read scriptproperties.xml");
-	// Can't move on until we do this so use sync version
-	let rawData = fs.readFileSync(filepath).toString();
-	let keywords = [] as any[]
-	let datatypes = [] as any[]
 
-	xml2js.parseString(rawData, function (err: any, result:any) {
-		if (err !== null){
-			vscode.window.showErrorMessage("Error during parsing of scriptproperties.xml:" + err);
-		}
+function readScriptProperties(filepath: string) {
+  console.log("Attempting to read scriptproperties.xml");
+  // Can't move on until we do this so use sync version
+  let rawData = fs.readFileSync(filepath).toString();
+  let keywords = [] as Keyword[];
+  let datatypes = [] as Datatype[];
 
-		keywords = result["scriptproperties"]["keyword"];
-		for (let i = 0; i < keywords.length; i++) {
-			processKeyword(rawData, keywords[i]);
-		}
+  xml2js.parseString(rawData, function (err: any, result: any) {
+    if (err !== null) {
+      vscode.window.showErrorMessage("Error during parsing of scriptproperties.xml:" + err);
+    }
 
-		datatypes = result["scriptproperties"]["datatype"];
-		for (let j = 0; j < datatypes.length; j++) {
-			processDatatype(rawData, datatypes[j]);
-		}
-		completionProvider.addTypeLiteral("boolean","==true");
-		completionProvider.addTypeLiteral("boolean","==false");
-		console.log("Parsed scriptproperties.xml");
-	});
-	return { keywords, datatypes }
+    // Process keywords and datatypes here, return the completed results
+    keywords = processKeywords(rawData, result["scriptproperties"]["keyword"]);
+    datatypes = processDatatypes(rawData, result["scriptproperties"]["datatype"]);
+
+    completionProvider.addTypeLiteral("boolean", "==true");
+    completionProvider.addTypeLiteral("boolean", "==false");
+    console.log("Parsed scriptproperties.xml");
+  });
+
+  return { keywords, datatypes };
 }
 
 
@@ -353,13 +352,6 @@ function escapeRegex(text: string){
 	return cleanStr(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 }
 
-interface ScriptProperty {
-	$:{
-		name: string;
-		result: string;
-		type?: string;
-	};
-}
 function processProperty(rawData: string, parent: string, parentType:string, prop:ScriptProperty){
 	let name = prop.$.name;
 	if (exceedinglyVerbose){
@@ -369,26 +361,6 @@ function processProperty(rawData: string, parent: string, parentType:string, pro
 	completionProvider.addProperty(parent, name, prop.$.type);
 }
 
-interface Keyword{
-	$:{
-		name: string;
-		type?: string;
-		pseudo?: string;
-		description?: string;
-	};
-	property?:[ScriptProperty];
-	import?:[{
-		$:{
-			source: string;
-			select: string;
-		}
-		property:[{
-			$:{
-				name: string;
-			}
-		}]
-	}];
-}
 
 function processKeyword(rawData: string, e: Keyword){
 	let name = e.$.name;
@@ -429,6 +401,33 @@ function processKeywordImport(name:string, src: string, select:string, targetNam
 	});
 }
 
+interface ScriptProperty {
+	$:{
+		name: string;
+		result: string;
+		type?: string;
+	};
+}
+interface Keyword{
+	$:{
+		name: string;
+		type?: string;
+		pseudo?: string;
+		description?: string;
+	};
+	property?:[ScriptProperty];
+	import?:[{
+		$:{
+			source: string;
+			select: string;
+		}
+		property:[{
+			$:{
+				name: string;
+			}
+		}]
+	}];
+}
 
 interface Datatype {
 	$:{
@@ -438,6 +437,7 @@ interface Datatype {
 	};
 	property?:[ScriptProperty];
 }
+
 function processDatatype(rawData: any, e: Datatype){
 	let name = e.$.name;
 	definitionProvider.addNonPropertyLocation(rawData, name, "datatype");
@@ -452,35 +452,64 @@ function processDatatype(rawData: any, e: Datatype){
 }
 
 
+// Process all keywords in the XML
+function processKeywords(rawData: string, keywords: any[]): Keyword[] {
+  let processedKeywords: Keyword[] = [];
+  keywords.forEach((e: Keyword) => {
+    processKeyword(rawData, e);
+    processedKeywords.push(e);  // Add processed keyword to the array
+  });
+  return processedKeywords;
+}
+
+// Process all datatypes in the XML
+function processDatatypes(rawData: string, datatypes: any[]): Datatype[] {
+  let processedDatatypes: Datatype[] = [];
+  datatypes.forEach((e: Datatype) => {
+    processDatatype(rawData, e);
+    processedDatatypes.push(e);  // Add processed datatype to the array
+  });
+  return processedDatatypes;
+}
+
+
 function generateKeywordText(keyword: any, datatypes: Datatype[], parts: string[]): string {
   const description = keyword.$.description;
   const pseudo = keyword.$.pseudo;
   const suffix = keyword.$.suffix;
   const result = keyword.$.result;
+	
   let hoverText = `Keyword: ${keyword.$.name}\n
   ${description ? 'Description: ' + description + '\n' : ''}
   ${pseudo ? 'Pseudo: ' + pseudo + '\n' : ''}
   ${result ? 'Result: ' + result + '\n' : ''}
   ${suffix ? 'Suffix: ' + suffix + '\n' : ''}`;
-  
-	let name = keyword.$.name;
+  let name = keyword.$.name;
   let currentPropertyList: ScriptProperty[] = keyword.property;
-	let updated = false;
+  let updated = false;
+
   // Iterate over parts of the path (excluding the first part which is the keyword itself)
   for (let i = 1; i < parts.length; i++) {
     let properties: ScriptProperty[] = [];
     // For the last part, we use 'includes' to match the property
-    if (i === parts.length - 1) {
-      properties = currentPropertyList.filter((p: ScriptProperty) => p.$.name.includes(parts[i]));
-    } else {
+		if (i === parts.length - 1) {
+			properties = currentPropertyList.filter((p: ScriptProperty) => {
+				// Match the property name with the part (e.g., 'tag' in 'faction.tag')
+				const propertyName = p.$.name;
+
+				// Match against templated property names like 'hastag.{$tag}' (accounting for the dynamic part)
+				const pattern = new RegExp(`\\{\\$${parts[i]}\\}`, 'i');
+				return propertyName.includes(parts[i]) || pattern.test(propertyName);
+			});
+		} else {
       // For all other parts, check each type and find properties matching the part
       properties = currentPropertyList.filter((p: ScriptProperty) => p.$.name === parts[i]);
-      
+
       if (properties.length === 0 && currentPropertyList.length > 0) {
         // If no properties match the current part, iterate over each datatype to find a matching type
         currentPropertyList.forEach((property) => {
           if (property.$.type) {
-            const type = datatypes.find((d: Datatype) => d.$.name === property.$.type);
+						const type = datatypes.find((d: Datatype) => d.$.name === property.$.type);
             if (type && type.property) {
               // Add the properties from the matching type to the current list
               properties.push(...type.property.filter((p: ScriptProperty) => p.$.name === parts[i]));
@@ -489,98 +518,134 @@ function generateKeywordText(keyword: any, datatypes: Datatype[], parts: string[
         });
       }
     }
-
     if (properties.length > 0) {
       // Iterate through all the matched properties and add them to hoverText
       properties.forEach((property) => {
-				hoverText += `\n\n- ${name}.${property.$.name}: ${property.$.result}`;
-				updated = true;
+        hoverText += `\n\n- ${name}.${property.$.name}: ${property.$.result}`;
+        updated = true;
 
+        // Update currentPropertyList for the next part
         if (property.$.type) {
           const type = datatypes.find((d: Datatype) => d.$.name === property.$.type);
-          if (type) {
-            if (type.property) {
-              currentPropertyList = type.property;
-            }
+          if (type && type.property) {
+            currentPropertyList = type.property;
           }
         }
-			});
-		}
-		name += '.' + parts[i]
-  }
-	if (updated) {
-		return hoverText;
-	} else {
-		return '';
+      });
+
+      // Append the current part to 'name' after processing matching properties
+      name += `.${parts[i]}`;
+    }
 	}
+	hoverText = hoverText.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return updated ? hoverText : '';
 }
 
 
 function generateHoverWordText(hoverWord: string, keywords: Keyword[], datatypes: Datatype[]): string {
-	let hoverText = '';
-	const matchingKeynames = keywords.filter((k: any) =>
-		k.property?.some((p: ScriptProperty) => p.$.name.includes(hoverWord))
-	);
-	const matchingDatatypes = datatypes.filter((d: any) =>
-		d.property?.some((p: ScriptProperty) => p.$.name.includes(hoverWord))
-	);
-	let suggestions = '';
-	if (matchingKeynames.length > 0) {
-		suggestions = matchingKeynames
+  let hoverText = '';
+  
+  // Find keywords that match the hoverWord either in their name or property names
+  const matchingKeynames = keywords.filter((k: Keyword) =>
+    k.$.name.includes(hoverWord) ||
+    k.property?.some((p: ScriptProperty) => p.$.name.includes(hoverWord))
+  );
+  
+  // Find datatypes that match the hoverWord either in their name or property names
+  const matchingDatatypes = datatypes.filter((d: Datatype) =>
+    d.$.name.includes(hoverWord) || // Check if datatype name includes hoverWord
+    d.property?.some((p: ScriptProperty) => p.$.name.includes(hoverWord)) // Check if any property name includes hoverWord
+  );
+  
+  if (debug) {
+    console.log("matchingKeynames:", matchingKeynames);
+    console.log("matchingDatatypes:", matchingDatatypes);
+  }
+
+  let matches = '';
+
+  // Process matching keywords
+  if (matchingKeynames.length > 0) {
+		matches = matchingKeynames
+			.sort()
 			.map((k: Keyword) => {
+				let header = `\n${k.$.name}`;
+				let suggestions = '';
+				// Append type, pseudo, and description if available
+				if (k.$.description) header += `: ${k.$.description}`;
+				if (k.$.type) header += ` (type: ${k.$.type})`;
+				if (k.$.pseudo) header += ` (pseudo: ${k.$.pseudo})`;
+				header += '\n';
+				
 				// Find the properties matching the hover part of the path
 				const properties = k.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord));
-
 				if (properties && properties.length > 0) {
-					// Iterate through all the matched properties
-					return properties
+					// Append matching properties
+					suggestions += properties
+						.sort()
 						.map((possibleProperty) => {
 							if (possibleProperty && possibleProperty.$.result.length > 0) {
 								return `- ${k.$.name}.${possibleProperty.$.name}: ${possibleProperty.$.result}`;
 							}
 							return null;
 						})
-						.filter((suggestion) => suggestion !== null) // Remove null results
+						//.filter((suggestion) => suggestion !== null) // Remove null results
 						.join('\n'); // Join the properties into a single string
 				}
-				return ''; // Return empty string if no matches
-			})
-			.filter((suggestion) => suggestion !== '') // Remove empty strings
-			.join('\n'); // Join all suggestions into a single string
-	}
+				return suggestions != '' ? header += suggestions : '';
+      })
+      .filter((match) => match !== '') // Remove empty suggestions
+      .join('\n'); // Join all suggestions into a single string
+  }
 
-	if (matchingDatatypes.length > 0) {
-		if (suggestions !== '') {
-			suggestions += '\n';
-		}
-		suggestions += matchingDatatypes
+  // Process matching datatypes
+  if (matchingDatatypes.length > 0) {
+    if (matches !== '') {
+      matches += '\n'; // Add a line break between keyword and datatype suggestions
+    }
+    matches += matchingDatatypes
+      .sort()
 			.map((d: Datatype) => {
-				// Find the property matching the hover part of the path
-				const properties = d.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord));
+				
+        let header = `\n${d.$.name}`;
+				let suggestions = '';
+        
+        // Append type and suffix if available
+        if (d.$.type) header += ` (type: ${d.$.type})`;
+        if (d.$.suffix) header += ` (suffix: ${d.$.suffix})`;
+				header += '\n';
 
-				if (properties && properties.length > 0) {
-					// Iterate through all the matched properties
-					return properties
-						.map((possibleProperty) => {
-							if (possibleProperty && possibleProperty.$.result.length > 0) {
-								return `- ${d.$.name}.${possibleProperty.$.name}: ${possibleProperty.$.result}`;
-							}
-							return null;
-						})
-						.filter((suggestion) => suggestion !== null) // Remove null results
-						.join('\n'); // Join the properties into a single string
-				}
-				return ''; // Return empty string if no matches
-			})
-			.filter((suggestion) => suggestion !== '') // Remove empty strings
-			.join('\n'); // Join all suggestions into a single string
-	}
-	if (suggestions !== '') {
-		suggestions = suggestions.split('\n').sort().join('\n');
-		hoverText += `\n\nPossible matches found for '${hoverWord}':\n${suggestions}`;
-	}
-	return hoverText;
+        // Find the properties matching the hover part of the path
+        const properties = d.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord));
+        if (properties && properties.length > 0) {
+          // Append matching properties
+					suggestions += properties
+						.sort()
+            .map((possibleProperty) => {
+              if (possibleProperty && possibleProperty.$.result.length > 0) {
+                return `- ${d.$.name}.${possibleProperty.$.name}: ${possibleProperty.$.result}`;
+              }
+              return null;
+            })
+            //.filter((suggestion) => suggestion !== null) // Remove null results
+            .join('\n'); // Join the properties into a single string
+        }
+
+				return suggestions != '' ? header += suggestions : '';
+      })
+      .filter((match) => match !== '') // Remove empty suggestions
+      .join('\n'); // Join all suggestions into a single string
+  }
+
+  // If suggestions exist, sort them and display them
+	if (matches !== '') {
+    matches = matches.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    hoverText += `\n\nMatches for '${hoverWord}':\n${matches}`;
+  }
+
+  return hoverText; // Return the constructed hoverText
 }
+
 
 export function activate(context: vscode.ExtensionContext) {
 
@@ -601,8 +666,6 @@ export function activate(context: vscode.ExtensionContext) {
 	let keywords = [] as Keyword[];
 	let datatypes = [] as Keyword[];
 	({ keywords, datatypes } = readScriptProperties(scriptPropertiesPath));
-	console.log(keywords);
-	console.log(datatypes);
 
   let sel: vscode.DocumentSelector = { language: 'xml' };
 
@@ -617,18 +680,25 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.languages.registerHoverProvider(sel, {
 			provideHover: async (document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Hover | undefined> => {
 				const hoverWord = document.getText(document.getWordRangeAtPosition(position));
-				const phraseRegex = /([.]?[$@]?[a-zA-Z0-9_-{}]+)+/g;
+				const phraseRegex = /([.]*[$@]*[a-zA-Z0-9_-{}])+/g;
 				const phrase = document.getText(document.getWordRangeAtPosition(position, phraseRegex));
 				const hoverWordIndex = phrase.lastIndexOf(hoverWord);
 				const slicedPhrase = phrase.slice(0, hoverWordIndex + hoverWord.length);
 				const parts = slicedPhrase.split('.');
 				// Extract the first part of the word and remove any leading `$ or @`
 				const firstPart = parts[0].startsWith('$') || parts[0].startsWith('@') ? parts[0].slice(1) : parts[0];
+				if (debug) {
+					console.log("Hover word: ", hoverWord);
+					console.log("Phrase: ", phrase);
+					console.log("Sliced phrase: ", slicedPhrase);
+					console.log("Parts: ", parts);
+					console.log("First part: ", firstPart);
+				}
 
 				// Find matching keyword
 				let hoverText = '';
 				let keyword = keywords.find((k: Keyword) => k.$.name === firstPart);
-				if (!keyword) {
+				if (!keyword || keyword.import) {
 					keyword = datatypes.find((d: Datatype) => d.$.name === firstPart);
 				}
 
