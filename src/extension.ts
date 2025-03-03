@@ -46,6 +46,37 @@ class TypeEntry {
 
 class CompletionDict implements vscode.CompletionItemProvider {
 	typeDict: Map<string, TypeEntry> = new Map<string, TypeEntry>();
+	macroDict: Map<string, Macro> = new  Map<string, Macro>();
+
+	addMacro(macro: Macro): void {
+		this.macroDict.set(macro.name, macro);
+	}
+
+	loadMacrosFromXML(xmlData: string): void {
+		xml2js.parseString(xmlData, (err, result) => {
+			if (err) {
+				console.error("Error parsing XML:", err);
+				return;
+			}
+
+			// Ensure the XML has the expected structure
+			const index = result?.index?.entry ?? []; // Access the 'entry' elements inside 'index'
+
+			index.forEach((entry: any) => {
+				const macroName = entry.$.name; // 'name' attribute of the 'entry'
+				const macroValue = entry.$.value; // 'value' attribute of the 'entry'
+
+				// Assuming the Macro class/structure is defined to handle the macroName and macroValue
+				const macro: Macro = {
+					name: macroName,
+					value: macroValue
+				};
+
+				this.addMacro(macro);
+			});
+		});
+	}
+	
 	addType(key: string, supertype?: string): void {
 		let k = cleanStr(key);
 		var entry = this.typeDict.get(k);
@@ -200,66 +231,85 @@ class CompletionDict implements vscode.CompletionItemProvider {
 		if (exceedinglyVerbose){
 			console.log("Previous token: ",interesting[0], " New token: ",interesting[1]);
 		}
-		// If we have a previous token & it's in the typeDictionary, only use that's entries
-		if (prevToken !== ""){
 
-			let entry = this.typeDict.get(prevToken);
-			if (entry===undefined) {
-				if (exceedinglyVerbose){
-					console.log("Missing previous token!");
-				}
-				// TODO backtrack & search
-				return;
-			} else {
-				if (exceedinglyVerbose){
-					console.log("Matching on type!");
-				}
-				
-				entry.properties.forEach((v, k)=> {
-					if (exceedinglyVerbose){
-						console.log("Top level property: ", k, v);
+		// Check if the prefix ends with 'macros.'
+		if (prevToken === "macros") {
+			if (newToken.length > 0) {
+				for (const key of this.macroDict.keys()) {
+					if (key.includes(newToken)) {
+						const macro = this.macroDict.get(key);
+						if (!macro) continue;
+						let item = new vscode.CompletionItem(macro.name);
+						item.insertText = macro.name;
+						item.detail = macro.value;
+						items.set(macro.name, item);
 					}
-					this.buildProperty("",prevToken,k, v, items, 0);
-				});
-				return this.makeCompletionList(items);
-			}
-		}
-		// Ignore tokens where all we have is a short string and no previous data to go off of
-		if (prevToken === "" && newToken.length < 2){
-			if (exceedinglyVerbose){
-				console.log("Ignoring short token without context!");
+				}
 			}
 			return this.makeCompletionList(items);
-		}
-		// Now check for the special hard to complete onles
-		if (prevToken.startsWith("{")){
-			if (exceedinglyVerbose){
-				console.log("Matching bracketed type");
-			}
-			let token = prevToken.substring(1);
+		} else {
 
-			let entry = this.typeDict.get(token);
-			if (entry === undefined){
-				if (exceedinglyVerbose){
-					console.log("Failed to match bracketed type");
+			// If we have a previous token & it's in the typeDictionary, only use that's entries
+			if (prevToken !== "") {
+
+				let entry = this.typeDict.get(prevToken);
+				if (entry === undefined) {
+					if (exceedinglyVerbose) {
+						console.log("Missing previous token!");
+					}
+					// TODO backtrack & search
+					return;
+				} else {
+					if (exceedinglyVerbose) {
+						console.log("Matching on type!");
+					}
+				
+					entry.properties.forEach((v, k) => {
+						if (exceedinglyVerbose) {
+							console.log("Top level property: ", k, v);
+						}
+						this.buildProperty("", prevToken, k, v, items, 0);
+					});
+					return this.makeCompletionList(items);
 				}
-			} else {
-				entry.literals.forEach(value =>{
-					this.addItem(items,value+"}");
-				});
 			}
-		}
+			// Ignore tokens where all we have is a short string and no previous data to go off of
+			if (prevToken === "" && newToken.length < 2) {
+				if (exceedinglyVerbose) {
+					console.log("Ignoring short token without context!");
+				}
+				return this.makeCompletionList(items);
+			}
+			// Now check for the special hard to complete onles
+			if (prevToken.startsWith("{")) {
+				if (exceedinglyVerbose) {
+					console.log("Matching bracketed type");
+				}
+				let token = prevToken.substring(1);
+
+				let entry = this.typeDict.get(token);
+				if (entry === undefined) {
+					if (exceedinglyVerbose) {
+						console.log("Failed to match bracketed type");
+					}
+				} else {
+					entry.literals.forEach(value => {
+						this.addItem(items, value + "}");
+					});
+				}
+			}
 
 
-		if (exceedinglyVerbose){
-			console.log("Trying fallback");
-		}
-		// Otherwise fall back to looking at keys of the typeDictionary for the new string
-		for (const key of this.typeDict.keys()) {
-			if (!key.startsWith(newToken)) {
-				continue;
+			if (exceedinglyVerbose) {
+				console.log("Trying fallback");
 			}
-			this.buildType("", key, items, 0);
+			// Otherwise fall back to looking at keys of the typeDictionary for the new string
+			for (const key of this.typeDict.keys()) {
+				if (!key.startsWith(newToken)) {
+					continue;
+				}
+				this.buildType("", key, items, 0);
+			}
 		}
 		return this.makeCompletionList(items);
 	}
@@ -436,6 +486,11 @@ interface Datatype {
 		suffix?: string;
 	};
 	property?:[ScriptProperty];
+}
+
+interface Macro {
+	name: string;
+	value: string;
 }
 
 function processDatatype(rawData: any, e: Datatype){
@@ -661,6 +716,35 @@ function generateHoverWordText(hoverWord: string, keywords: Keyword[], datatypes
   return hoverText; // Return the constructed hoverText
 }
 
+function loadMacros(rootpath: string) {
+	const macrosXmlFiles = [
+		rootpath+"/index/macros.xml",
+		rootpath+"/extensions/ego_dlc_split/index/macros.xml",
+		rootpath+"/extensions/ego_dlc_terran/index/macros.xml",
+		rootpath+"/extensions/ego_dlc_pirate/index/macros.xml",
+		rootpath+"/extensions/ego_dlc_boron/index/macros.xml",
+		rootpath+"/extensions/ego_dlc_timelines/index/macros.xml"
+	];
+
+  macrosXmlFiles.forEach(filePath => {
+    try {
+      const rawData = fs.readFileSync(filePath, 'utf-8');
+      completionProvider.loadMacrosFromXML(rawData);
+		} catch {
+    }
+	});
+}
+
+function sortMacroDict() {
+  // Convert the Map to an array of [key, value] pairs, then sort by the key alphabetically
+  const sortedEntries = Array.from(completionProvider.macroDict.entries()).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+
+  // Create a new Map with the sorted entries
+  const sortedDict = new Map(sortedEntries);
+
+  // Update macroDict with the sorted version
+  completionProvider.macroDict = sortedDict;
+}
 
 export function activate(context: vscode.ExtensionContext) {
 
@@ -681,7 +765,8 @@ export function activate(context: vscode.ExtensionContext) {
 	let keywords = [] as Keyword[];
 	let datatypes = [] as Keyword[];
 	({ keywords, datatypes } = readScriptProperties(scriptPropertiesPath));
-
+	loadMacros(rootpath);
+	sortMacroDict()
   let sel: vscode.DocumentSelector = { language: 'xml' };
 
   let disposableCompleteProvider = vscode.languages.registerCompletionItemProvider(sel, completionProvider, ".", "\"", "{");
