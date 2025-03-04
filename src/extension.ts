@@ -479,6 +479,7 @@ function generateKeywordText(keyword: any, datatypes: Datatype[], parts: string[
   const suffix = keyword.$.suffix;
   const result = keyword.$.result;
 	
+	
   let hoverText = `Keyword: ${keyword.$.name}\n
   ${description ? 'Description: ' + description + '\n' : ''}
   ${pseudo ? 'Pseudo: ' + pseudo + '\n' : ''}
@@ -589,7 +590,12 @@ function generateHoverWordText(hoverWord: string, keywords: Keyword[], datatypes
     if (k.$.pseudo) groupedMatches[header].pseudo.push(`${k.$.pseudo}`);
 
     // Collect matching properties
-    const properties = k.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord));
+    let properties: ScriptProperty[] = [];
+    if (k.$.name === hoverWord) {
+      properties = k.property || []; // Include all properties for exact match
+    } else {
+      properties = k.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord)) || [];
+    }
     if (properties && properties.length > 0) {
       properties.forEach((p: ScriptProperty) => {
         if (p.$.result) {
@@ -601,29 +607,30 @@ function generateHoverWordText(hoverWord: string, keywords: Keyword[], datatypes
   });
 
   // Process matching datatypes
-  matchingDatatypes.forEach((d: Datatype) => {
-    let header = d.$.name;
+	matchingDatatypes.forEach((d: Datatype) => {
+		let header = d.$.name;
+		if (!groupedMatches[header]) {
+			groupedMatches[header] = { description: [], type: [], pseudo: [], suffix: [], properties: [] };
+		}
+		if (d.$.type) groupedMatches[header].type.push(`${d.$.type}`);
+		if (d.$.suffix) groupedMatches[header].suffix.push(`${d.$.suffix}`);
 
-    // Initialize the header if not already present
-    if (!groupedMatches[header]) {
-      groupedMatches[header] = { description: [], type: [], pseudo: [], suffix: [], properties: [] };
-    }
+		let properties: ScriptProperty[] = [];
+		if (d.$.name === hoverWord) {
+			properties = d.property || []; // All properties for exact match
+		} else {
+			properties = d.property?.filter(p => p.$.name.includes(hoverWord)) || [];
+		}
 
-    // Add type and suffix if available
-    if (d.$.type) groupedMatches[header].type.push(`${d.$.type}`);
-    if (d.$.suffix) groupedMatches[header].suffix.push(`${d.$.suffix}`);
-
-    // Collect matching properties
-    const properties = d.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord));
-    if (properties && properties.length > 0) {
-      properties.forEach((p: ScriptProperty) => {
-        if (p.$.result) {
-          const resultText = `\n- ${d.$.name}.${p.$.name}: ${p.$.result}`;
-          groupedMatches[header].properties.push(resultText);
-        }
-      });
-    }
-  });
+		if (properties.length > 0) {
+			properties.forEach((p: ScriptProperty) => {
+				if (p.$.result) {
+					groupedMatches[header].properties.push(`\n- ${d.$.name}.${p.$.name}: ${p.$.result}`);
+				}
+			});
+		}
+	});
+	
 	let matches = '';
   // Sort and build the final hoverText string
   Object.keys(groupedMatches).sort().forEach((header) => {
@@ -700,8 +707,8 @@ export function activate(context: vscode.ExtensionContext) {
 				const hoverWordIndex = phrase.lastIndexOf(hoverWord);
 				const slicedPhrase = phrase.slice(0, hoverWordIndex + hoverWord.length);
 				const parts = slicedPhrase.split('.');
-				// Extract the first part of the word and remove any leading `$ or @`
 				const firstPart = parts[0].startsWith('$') || parts[0].startsWith('@') ? parts[0].slice(1) : parts[0];
+				
 				if (debug) {
 					console.log("Hover word: ", hoverWord);
 					console.log("Phrase: ", phrase);
@@ -710,20 +717,20 @@ export function activate(context: vscode.ExtensionContext) {
 					console.log("First part: ", firstPart);
 				}
 
-				// Find matching keyword
 				let hoverText = '';
 				let keyword = keywords.find((k: Keyword) => k.$.name === firstPart);
 				if (!keyword || keyword.import) {
 					keyword = datatypes.find((d: Datatype) => d.$.name === firstPart);
 				}
 
-				// Generate hover text
+				// Generate keyword text if applicable
 				if (keyword && firstPart !== hoverWord) {
 					hoverText = generateKeywordText(keyword, datatypes, parts);
 				}
-				if (!hoverText.includes(keyword+':') || firstPart === hoverWord) {
-					hoverText += generateHoverWordText(hoverWord,	keywords, datatypes);
-				}
+
+				// Always append hover word details, ensuring full datatype properties for exact matches
+				hoverText += generateHoverWordText(hoverWord, keywords, datatypes);
+
 				return hoverText !== '' ? new vscode.Hover(hoverText) : undefined;
 			},
 		})
