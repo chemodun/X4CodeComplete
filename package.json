@@ -2,7 +2,7 @@
   "name": "x4codecomplete",
   "displayName": "X4CodeComplete",
   "description": "",
-  "version": "1.1.3",
+  "version": "1.2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/archenovalis/X4CodeComplete"
@@ -27,7 +27,17 @@
         "x4CodeComplete.unpackedFileLocation": {
           "type": "string",
           "default": "",
-          "description": "Specifies the path to your unpacked files. Required for the plugin to work."
+          "description": "Path to unpacked vanilla files."
+        },
+        "x4CodeComplete.extensionsFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Path to your extensions directory."
+        },
+        "x4CodeComplete.language": {
+          "type": "string",
+          "default": "44",
+          "description": "Preferred language number (e.g., '44' for English). Files matching this number will be displayed first."
         },
         "x4CodeComplete.exceedinglyVerbose": {
           "type": "boolean",

@@ -12,8 +12,7 @@ added documentation tooltips and bug fixes (whitespace changes too)
 
 ### 1.2
 
-(planned) t-file text
-(planned) t-file text
+t-file text
 
 # x4codecomplete README
 
