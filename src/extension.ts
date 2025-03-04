@@ -562,84 +562,99 @@ function generateHoverWordText(hoverWord: string, keywords: Keyword[], datatypes
     console.log("matchingDatatypes:", matchingDatatypes);
   }
 
-  let matches = '';
+  // Define the type for the grouped matches
+  interface GroupedMatch {
+    description: string[];
+    type: string[];
+    pseudo: string[];
+    suffix: string[];
+    properties: string[];
+  }
+
+  // A map to group matches by the header name
+  let groupedMatches: { [key: string]: GroupedMatch } = {};
 
   // Process matching keywords
-  if (matchingKeynames.length > 0) {
-		matches = matchingKeynames
-			.sort()
-			.map((k: Keyword) => {
-				let header = `\n${k.$.name}`;
-				let suggestions = '';
-				// Append type, pseudo, and description if available
-				if (k.$.description) header += `: ${k.$.description}`;
-				if (k.$.type) header += ` (type: ${k.$.type})`;
-				if (k.$.pseudo) header += ` (pseudo: ${k.$.pseudo})`;
-				header += '\n';
-				
-				// Find the properties matching the hover part of the path
-				const properties = k.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord));
-				if (properties && properties.length > 0) {
-					// Append matching properties
-					suggestions += properties
-						.sort()
-						.map((possibleProperty) => {
-							if (possibleProperty && possibleProperty.$.result.length > 0) {
-								return `- ${k.$.name}.${possibleProperty.$.name}: ${possibleProperty.$.result}`;
-							}
-							return null;
-						})
-						//.filter((suggestion) => suggestion !== null) // Remove null results
-						.join('\n'); // Join the properties into a single string
-				}
-				return suggestions != '' ? header += suggestions : '';
-      })
-      .filter((match) => match !== '') // Remove empty suggestions
-      .join('\n'); // Join all suggestions into a single string
-  }
+  matchingKeynames.forEach((k: Keyword) => {
+    let header = k.$.name;
+
+    // Initialize the header if not already present
+    if (!groupedMatches[header]) {
+      groupedMatches[header] = { description: [], type: [], pseudo: [], suffix: [], properties: [] };
+    }
+
+    // Add description, type, and pseudo if available
+    if (k.$.description) groupedMatches[header].description.push(k.$.description);
+    if (k.$.type) groupedMatches[header].type.push(`${k.$.type}`);
+    if (k.$.pseudo) groupedMatches[header].pseudo.push(`${k.$.pseudo}`);
+
+    // Collect matching properties
+    const properties = k.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord));
+    if (properties && properties.length > 0) {
+      properties.forEach((p: ScriptProperty) => {
+        if (p.$.result) {
+          const resultText = `\n- ${k.$.name}.${p.$.name}: ${p.$.result}`;
+          groupedMatches[header].properties.push(resultText);
+        }
+      });
+    }
+  });
 
   // Process matching datatypes
-  if (matchingDatatypes.length > 0) {
-    if (matches !== '') {
-      matches += '\n'; // Add a line break between keyword and datatype suggestions
+  matchingDatatypes.forEach((d: Datatype) => {
+    let header = d.$.name;
+
+    // Initialize the header if not already present
+    if (!groupedMatches[header]) {
+      groupedMatches[header] = { description: [], type: [], pseudo: [], suffix: [], properties: [] };
     }
-    matches += matchingDatatypes
-      .sort()
-			.map((d: Datatype) => {
-				
-        let header = `\n${d.$.name}`;
-				let suggestions = '';
-        
-        // Append type and suffix if available
-        if (d.$.type) header += ` (type: ${d.$.type})`;
-        if (d.$.suffix) header += ` (suffix: ${d.$.suffix})`;
-				header += '\n';
 
-        // Find the properties matching the hover part of the path
-        const properties = d.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord));
-        if (properties && properties.length > 0) {
-          // Append matching properties
-					suggestions += properties
-						.sort()
-            .map((possibleProperty) => {
-              if (possibleProperty && possibleProperty.$.result.length > 0) {
-                return `- ${d.$.name}.${possibleProperty.$.name}: ${possibleProperty.$.result}`;
-              }
-              return null;
-            })
-            //.filter((suggestion) => suggestion !== null) // Remove null results
-            .join('\n'); // Join the properties into a single string
+    // Add type and suffix if available
+    if (d.$.type) groupedMatches[header].type.push(`${d.$.type}`);
+    if (d.$.suffix) groupedMatches[header].suffix.push(`${d.$.suffix}`);
+
+    // Collect matching properties
+    const properties = d.property?.filter((p: ScriptProperty) => p.$.name.includes(hoverWord));
+    if (properties && properties.length > 0) {
+      properties.forEach((p: ScriptProperty) => {
+        if (p.$.result) {
+          const resultText = `\n- ${d.$.name}.${p.$.name}: ${p.$.result}`;
+          groupedMatches[header].properties.push(resultText);
         }
+      });
+    }
+  });
+	let matches = '';
+  // Sort and build the final hoverText string
+  Object.keys(groupedMatches).sort().forEach((header) => {
+    const group = groupedMatches[header];
 
-				return suggestions != '' ? header += suggestions : '';
-      })
-      .filter((match) => match !== '') // Remove empty suggestions
-      .join('\n'); // Join all suggestions into a single string
-  }
+    // Sort the contents for each group
+    if (group.description.length > 0) group.description.sort();
+    if (group.type.length > 0) group.type.sort();
+    if (group.pseudo.length > 0) group.pseudo.sort();
+    if (group.suffix.length > 0) group.suffix.sort();
+    if (group.properties.length > 0) group.properties.sort();
 
-  // If suggestions exist, sort them and display them
-	if (matches !== '') {
-    matches = matches.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // Only add the header if there are any matches in it
+    let groupText = `\n\n${header}`;
+
+    // Append the sorted results for each category
+    if (group.description.length > 0) groupText += `: ${group.description.join(' | ')}`;
+    if (group.type.length > 0) groupText += ` (type: ${group.type.join(' | ')})`;
+    if (group.pseudo.length > 0) groupText += ` (pseudo: ${group.pseudo.join(' | ')})`;
+    if (group.suffix.length > 0) groupText += ` (suffix: ${group.suffix.join(' | ')})`;
+		if (group.properties.length > 0) {
+			groupText += '\n' + `${group.properties.join('\n')}`;
+			// Append the groupText to matches
+			matches += groupText;
+		}
+
+  });
+
+  // Escape < and > for HTML safety and return the result
+  if (matches !== '') {
+    matches = matches.replace(/</g, '&lt;').replace(/>/g, '&gt;');
     hoverText += `\n\nMatches for '${hoverWord}':\n${matches}`;
   }
 
