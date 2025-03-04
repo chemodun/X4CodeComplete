@@ -474,70 +474,85 @@ function processDatatypes(rawData: string, datatypes: any[]): Datatype[] {
 
 
 function generateKeywordText(keyword: any, datatypes: Datatype[], parts: string[]): string {
+  // Ensure keyword is valid
+  if (!keyword || !keyword.$) {
+    return '';
+  }
+
   const description = keyword.$.description;
   const pseudo = keyword.$.pseudo;
   const suffix = keyword.$.suffix;
   const result = keyword.$.result;
-	
-	
+  
   let hoverText = `Keyword: ${keyword.$.name}\n
   ${description ? 'Description: ' + description + '\n' : ''}
   ${pseudo ? 'Pseudo: ' + pseudo + '\n' : ''}
   ${result ? 'Result: ' + result + '\n' : ''}
   ${suffix ? 'Suffix: ' + suffix + '\n' : ''}`;
   let name = keyword.$.name;
-  let currentPropertyList: ScriptProperty[] = keyword.property;
+  let currentPropertyList: ScriptProperty[] = Array.isArray(keyword.property) ? keyword.property : [];
   let updated = false;
 
   // Iterate over parts of the path (excluding the first part which is the keyword itself)
   for (let i = 1; i < parts.length; i++) {
     let properties: ScriptProperty[] = [];
-    // For the last part, we use 'includes' to match the property
-		if (i === parts.length - 1) {
-			properties = currentPropertyList.filter((p: ScriptProperty) => {
-				// Match the property name with the part (e.g., 'tag' in 'faction.tag')
-				const propertyName = p.$.name;
+    
+    // Ensure currentPropertyList is iterable
+    if (!Array.isArray(currentPropertyList)) {
+      currentPropertyList = [];
+    }
 
-				// Match against templated property names like 'hastag.{$tag}' (accounting for the dynamic part)
-				const pattern = new RegExp(`\\{\\$${parts[i]}\\}`, 'i');
-				return propertyName.includes(parts[i]) || pattern.test(propertyName);
-			});
-		} else {
-      // For all other parts, check each type and find properties matching the part
-      properties = currentPropertyList.filter((p: ScriptProperty) => p.$.name === parts[i]);
+    // For the last part, use 'includes' to match the property
+    if (i === parts.length - 1) {
+      properties = currentPropertyList.filter((p: ScriptProperty) => {
+        // Safely access p.$.name
+        const propertyName = p && p.$ && p.$.name ? p.$.name : '';
+        const pattern = new RegExp(`\\{\\$${parts[i]}\\}`, 'i');
+        return propertyName.includes(parts[i]) || pattern.test(propertyName);
+      });
+    } else {
+      // For intermediate parts, exact match
+      properties = currentPropertyList.filter((p: ScriptProperty) => 
+        p && p.$ && p.$.name === parts[i]
+      );
 
       if (properties.length === 0 && currentPropertyList.length > 0) {
-        // If no properties match the current part, iterate over each datatype to find a matching type
+        // Try to find properties via type lookup
         currentPropertyList.forEach((property) => {
-          if (property.$.type) {
-						const type = datatypes.find((d: Datatype) => d.$.name === property.$.type);
-            if (type && type.property) {
-              // Add the properties from the matching type to the current list
-              properties.push(...type.property.filter((p: ScriptProperty) => p.$.name === parts[i]));
+          if (property && property.$ && property.$.type) {
+            const type = datatypes.find((d: Datatype) => d && d.$ && d.$.name === property.$.type);
+            if (type && Array.isArray(type.property)) {
+              properties.push(...type.property.filter((p: ScriptProperty) => 
+                p && p.$ && p.$.name === parts[i]
+              ));
             }
           }
         });
       }
     }
-    if (properties.length > 0) {
-      // Iterate through all the matched properties and add them to hoverText
-      properties.forEach((property) => {
-        hoverText += `\n\n- ${name}.${property.$.name}: ${property.$.result}`;
-        updated = true;
 
-        // Update currentPropertyList for the next part
-        if (property.$.type) {
-          const type = datatypes.find((d: Datatype) => d.$.name === property.$.type);
-          if (type && type.property) {
-            currentPropertyList = type.property;
+    if (properties.length > 0) {
+      properties.forEach((property) => {
+        // Safely access property attributes
+        if (property && property.$ && property.$.name && property.$.result) {
+          hoverText += `\n\n- ${name}.${property.$.name}: ${property.$.result}`;
+          updated = true;
+
+          // Update currentPropertyList for the next part
+          if (property.$.type) {
+            const type = datatypes.find((d: Datatype) => d && d.$ && d.$.name === property.$.type);
+            currentPropertyList = (type && Array.isArray(type.property)) ? type.property : [];
           }
         }
       });
 
-      // Append the current part to 'name' after processing matching properties
+      // Append the current part to 'name' only if properties were found
       name += `.${parts[i]}`;
+    } else {
+      // If no properties match, reset currentPropertyList to empty to avoid carrying forward invalid state
+      currentPropertyList = [];
     }
-	}
+  }
 	hoverText = hoverText.replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return updated ? hoverText : '';
 }
@@ -707,7 +722,7 @@ export function activate(context: vscode.ExtensionContext) {
 				const hoverWordIndex = phrase.lastIndexOf(hoverWord);
 				const slicedPhrase = phrase.slice(0, hoverWordIndex + hoverWord.length);
 				const parts = slicedPhrase.split('.');
-				const firstPart = parts[0].startsWith('$') || parts[0].startsWith('@') ? parts[0].slice(1) : parts[0];
+				let firstPart = parts[0].startsWith('$') || parts[0].startsWith('@') ? parts[0].slice(1) : parts[0];
 				
 				if (debug) {
 					console.log("Hover word: ", hoverWord);
@@ -718,19 +733,21 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 
 				let hoverText = '';
-				let keyword = keywords.find((k: Keyword) => k.$.name === firstPart);
-				if (!keyword || keyword.import) {
-					keyword = datatypes.find((d: Datatype) => d.$.name === firstPart);
+				while (hoverText === '' && parts.length > 0) {
+					let keyword = keywords.find((k: Keyword) => k.$.name === firstPart);
+					if (!keyword || keyword.import) {
+						keyword = datatypes.find((d: Datatype) => d.$.name === firstPart);
+					}
+					if (keyword && firstPart !== hoverWord) {
+						hoverText += generateKeywordText(keyword, datatypes, parts);
+					}
+					// Always append hover word details, ensuring full datatype properties for exact matches
+					hoverText += generateHoverWordText(hoverWord, keywords, datatypes);
+					if (hoverText === '') {
+						parts.shift();
+						firstPart = parts[0].startsWith('$') || parts[0].startsWith('@') ? parts[0].slice(1) : parts[0];
+					}
 				}
-
-				// Generate keyword text if applicable
-				if (keyword && firstPart !== hoverWord) {
-					hoverText = generateKeywordText(keyword, datatypes, parts);
-				}
-
-				// Always append hover word details, ensuring full datatype properties for exact matches
-				hoverText += generateHoverWordText(hoverWord, keywords, datatypes);
-
 				return hoverText !== '' ? new vscode.Hover(hoverText) : undefined;
 			},
 		})
