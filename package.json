@@ -1,13 +1,13 @@
 {
-  "name": "x4codecomplete",
-  "displayName": "X4CodeComplete",
+  "name": "x4codecomplete-lua",
+  "displayName": "X4CodeComplete-Lua",
   "description": "",
   "version": "1.2.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/archenovalis/X4CodeComplete"
   },
-  "publisher": "CharlieGettys and Archie",
+  "publisher": "Archie",
   "license": "MIT",
   "engines": {
     "vscode": "^1.33.0"
@@ -16,20 +16,20 @@
     "Other"
   ],
   "activationEvents": [
-    "onLanguage:xml"
+    "onLanguage:lua"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
       "type": "object",
-      "title": "X4 Code Complete Settings",
+      "title": "X4 Code Complete-Lua Settings",
       "properties": {
-        "x4CodeComplete.unpackedFileLocation": {
+        "x4CodeComplete-lua.unpackedFileLocation": {
           "type": "string",
           "default": "",
           "description": "Path to unpacked vanilla files."
         },
-        "x4CodeComplete.extensionsFolder": {
+        "x4CodeComplete-lua.extensionsFolder": {
           "type": "string",
           "default": "",
           "description": "Path to your extensions directory."
