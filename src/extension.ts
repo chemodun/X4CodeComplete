@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as xml2js from 'xml2js';
 import * as xpath from 'xml2js-xpath';
 import * as path from 'path';
+import * as sax from 'sax';
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -385,7 +386,35 @@ class VariableTracker {
 
 const variableTracker = new VariableTracker();
 
+function isValidXmlDocument(document: vscode.TextDocument): boolean {
+  if (document.languageId !== 'xml') {
+    return false; // Only process XML files
+  }
+
+  const text = document.getText();
+  const parser = new xml2js.Parser({ explicitArray: false });
+
+  let isValid = false;
+  parser.parseString(text, (err, result) => {
+    if (err) {
+      return; // Not a valid XML document
+    }
+
+    // Check if the root element is <aiscript> or <md>
+    const rootElement = Object.keys(result)[0];
+    if (rootElement === 'aiscript' || rootElement === 'mdscript') {
+      isValid = true;
+    }
+  });
+
+  return isValid;
+}
+
 function trackVariablesInDocument(document: vscode.TextDocument): void {
+  if (!isValidXmlDocument(document)) {
+    return; // Skip processing if the document is not valid
+  }
+
   // Clear existing variable locations for this document
   for (const [name, locations] of variableTracker.variableLocations.entries()) {
     variableTracker.variableLocations.set(
@@ -394,19 +423,53 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
     );
   }
 
-  // Re-track variables in the document
-  const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)|<param\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"/g;
   const text = document.getText();
-  let match: RegExpExecArray | null;
+  const parser = sax.parser(true); // Create a SAX parser with strict mode enabled
 
-  while ((match = variablePattern.exec(text)) !== null) {
-    const variableName = match[1] || match[2]; // Use the first capturing group ($something) or the second (<param name="something")
-    if (variableName) {
-      const start = document.positionAt(match.index + match[0].indexOf(variableName));
-      const end = document.positionAt(match.index + match[0].indexOf(variableName) + variableName.length);
+  let currentElement: string | null = null;
+  let currentElementStartIndex: number | null = null;
+
+  parser.onopentag = (node) => {
+    currentElement = node.name;
+    currentElementStartIndex = parser.startTagPosition - 1; // Start position of the element in the text
+
+    // Check for variables in attributes
+    for (const [attrName, attrValue] of Object.entries(node.attributes)) {
+      const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+      let match: RegExpExecArray | null;
+
+      while (typeof attrValue === 'string' && (match = variablePattern.exec(attrValue)) !== null) {
+        const variableName = match[1];
+        const attrStartIndex = text.indexOf(attrValue, currentElementStartIndex || 0) + match.index;
+        const start = document.positionAt(attrStartIndex);
+        const end = document.positionAt(attrStartIndex + match[0].length);
+
+        variableTracker.addVariable(variableName, document.uri, new vscode.Range(start, end));
+      }
+    }
+  };
+
+  parser.onclosetag = () => {
+    currentElement = null;
+    currentElementStartIndex = null;
+  };
+
+  parser.onattribute = (attr) => {
+    if (currentElement === 'param' && attr.name === 'name') {
+      const variableName = attr.value;
+      const attrStartIndex = text.indexOf(attr.value, currentElementStartIndex || 0);
+      const start = document.positionAt(attrStartIndex);
+      const end = document.positionAt(attrStartIndex + variableName.length);
+
       variableTracker.addVariable(variableName, document.uri, new vscode.Range(start, end));
     }
-  }
+  };
+
+  parser.onerror = (err) => {
+    console.error(`Error parsing XML document: ${err.message}`);
+  };
+
+  parser.write(text).close();
 }
 
 // Refresh variable locations when a document is opened
@@ -955,6 +1018,10 @@ export function activate(context: vscode.ExtensionContext) {
         document: vscode.TextDocument,
         position: vscode.Position
       ): Promise<vscode.Hover | undefined> => {
+        if (!isValidXmlDocument(document)) {
+          return undefined; // Skip hover if the document is not valid
+        }
+
         const tPattern =
           /\{\s*(\d+)\s*,\s*(\d+)\s*\}|readtext\.\{\s*(\d+)\s*\}\.\{\s*(\d+)\s*\}|page="(\d+)"\s+line="(\d+)"/g;
         // matches:
@@ -1131,11 +1198,25 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   // Track variables in open documents
-  vscode.workspace.onDidOpenTextDocument(trackVariablesInDocument);
-  vscode.workspace.onDidChangeTextDocument((event) => trackVariablesInDocument(event.document));
+  vscode.workspace.onDidOpenTextDocument((document) => {
+    if (isValidXmlDocument(document)) {
+      trackVariablesInDocument(document);
+    }
+  });
+
+  // Refresh variable locations when a document is edited
+  vscode.workspace.onDidChangeTextDocument((event) => {
+    if (isValidXmlDocument(event.document)) {
+      trackVariablesInDocument(event.document);
+    }
+  });
 
   // Track variables in all currently open documents
-  vscode.workspace.textDocuments.forEach(trackVariablesInDocument);
+  vscode.workspace.textDocuments.forEach((document) => {
+    if (isValidXmlDocument(document)) {
+      trackVariablesInDocument(document);
+    }
+  });
 }
 
 // this method is called when your extension is deactivated
