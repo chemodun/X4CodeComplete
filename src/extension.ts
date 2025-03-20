@@ -1002,6 +1002,28 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
 
+        const variablePattern = /(\$[a-zA-Z_][a-zA-Z0-9_]*)|<param\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"/g;
+        const rangeVariable = document.getWordRangeAtPosition(position, variablePattern);
+
+        if (rangeVariable) {
+          const text = document.getText(rangeVariable);
+          const matches = variablePattern.exec(text);
+          variablePattern.lastIndex = 0; // Reset regex state
+
+          if (matches) {
+            let variableName = matches[1]?.startsWith('$') ? matches[1] : matches[2];
+            if (exceedinglyVerbose) {
+              console.log(`Matched variable: ${variableName}`);
+            }
+
+            // Generate hover text for the variable
+            const hoverText = new vscode.MarkdownString();
+            hoverText.appendMarkdown(`**Variable:** \`${variableName}\`\n\n`);
+            hoverText.appendMarkdown(`This variable is defined as \`${variableName}\`.\n`);
+            return new vscode.Hover(hoverText, rangeVariable);
+          }
+        }
+
         const hoverWord = document.getText(document.getWordRangeAtPosition(position));
         const phraseRegex = /([.]*[$@]*[a-zA-Z0-9_-{}])+/g;
         const phrase = document.getText(document.getWordRangeAtPosition(position, phraseRegex));
@@ -1040,6 +1062,80 @@ export function activate(context: vscode.ExtensionContext) {
       },
     })
   );
+
+  // Extract variable name from the current position in the document
+  function extractVariableName(document: vscode.TextDocument, position: vscode.Position): string | undefined {
+    const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)|<param\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"/;
+    const wordRange = document.getWordRangeAtPosition(position, variablePattern);
+    if (wordRange) {
+      const match = document.getText(wordRange).match(variablePattern);
+      return match?.[1] || match?.[2]; // Use the first capturing group ($something) or the second <param name="(something)"
+    }
+    return undefined;
+  }
+
+  definitionProvider.provideDefinition = (document: vscode.TextDocument, position: vscode.Position) => {
+    const variableName = extractVariableName(document, position);
+    if (variableName) {
+      const locations = variableTracker.getVariableLocations(variableName, document);
+      return locations.length > 0 ? locations[0] : undefined; // Return the first location or undefined
+    }
+    return undefined;
+  };
+
+  context.subscriptions.push(
+    vscode.languages.registerReferenceProvider(sel, {
+      provideReferences(document: vscode.TextDocument, position: vscode.Position, context: vscode.ReferenceContext) {
+        const variableName = extractVariableName(document, position);
+        if (variableName) {
+          return variableTracker.getVariableLocations(variableName, document);
+        }
+        return [];
+      },
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerRenameProvider(sel, {
+      provideRenameEdits(document: vscode.TextDocument, position: vscode.Position, newName: string) {
+        const variableName = extractVariableName(document, position);
+        if (variableName) {
+          const locations = variableTracker.getVariableLocations(variableName, document);
+
+          // Debug log: Print old name, new name, and locations
+          console.log(`Renaming variable: ${variableName} -> ${newName}`);
+          console.log(`Locations to update:`, locations);
+
+          const workspaceEdit = new vscode.WorkspaceEdit();
+          locations.forEach((location) => {
+            // Debug log: Print each edit
+            const rangeText = location.range ? document.getText(location.range) : '';
+            const replacementText = rangeText.startsWith('$') ? `$${newName}` : newName;
+            console.log(
+              `Editing file: ${location.uri.fsPath}, Range: ${location.range}, Old Text: ${rangeText}, New Text: ${replacementText}`
+            );
+            workspaceEdit.replace(location.uri, location.range, replacementText);
+          });
+
+          // Update the tracker with the new name
+          variableTracker.updateVariableName(variableName, newName);
+
+          return workspaceEdit;
+        }
+
+        // Debug log: No variable name found
+        console.log(`No variable name found at position: ${position}`);
+        return undefined;
+      },
+    })
+  );
+
+  // Track variables in open documents
+  vscode.workspace.onDidOpenTextDocument(trackVariablesInDocument);
+  vscode.workspace.onDidChangeTextDocument((event) => trackVariablesInDocument(event.document));
+
+  // Track variables in all currently open documents
+  vscode.workspace.textDocuments.forEach(trackVariablesInDocument);
 }
 
 // this method is called when your extension is deactivated
