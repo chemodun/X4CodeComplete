@@ -427,12 +427,12 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
 
   const text = document.getText();
   const parser = sax.parser(true); // Create a SAX parser with strict mode enabled
+  const tagStack: string[] = []; // Stack to track open tags
 
-  let currentElement: string | null = null;
   let currentElementStartIndex: number | null = null;
 
   parser.onopentag = (node) => {
-    currentElement = node.name;
+    tagStack.push(node.name); // Push the current tag onto the stack
     currentElementStartIndex = parser.startTagPosition - 1; // Start position of the element in the text
 
     // Check for variables in attributes
@@ -440,7 +440,13 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
       const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
       let match: RegExpExecArray | null;
 
-      if (currentElement === 'param' && attrName === 'name' && typeof attrValue === 'string') {
+      if (
+        node.name === 'param' &&
+        tagStack[tagStack.length - 2] === 'params' &&
+        attrName === 'name' &&
+        typeof attrValue === 'string'
+      ) {
+        // Ensure <param> is a subnode of <params>
         const variableName = attrValue;
         const attrStartIndex = text.indexOf(attrValue, currentElementStartIndex || 0);
         const start = document.positionAt(attrStartIndex);
@@ -461,7 +467,7 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
   };
 
   parser.onclosetag = () => {
-    currentElement = null;
+    tagStack.pop(); // Pop the current tag from the stack
     currentElementStartIndex = null;
   };
 
