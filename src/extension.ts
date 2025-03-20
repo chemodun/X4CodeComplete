@@ -564,9 +564,15 @@ function findLanguageText(pageId: string, textId: string): string {
 	let allMatches: Match[] = [];
 
 	for (const [filePath, xmlData] of languageFiles) {
-		if (!xmlData?.language?.page) continue;
+		// To process the diff format of the translation files
+		if (!(xmlData?.language?.page || Array.isArray(xmlData?.diff?.add))) continue;
 
-		const page = xmlData.language.page.find((p: any) => 
+		const pages = [
+			...(xmlData.language?.page || []),
+			...(xmlData.diff?.add?.flatMap((item: any) => item.page) || [])
+		];
+
+		const page = pages.find((p: any) =>
 			p?.$?.id === pageId
 		);
 
