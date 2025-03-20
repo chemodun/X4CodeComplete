@@ -946,9 +946,12 @@ export function activate(context: vscode.ExtensionContext) {
 					}
 					// Always append hover word details, ensuring full datatype properties for exact matches
 					hoverText += generateHoverWordText(hoverWord, keywords, datatypes);
-					if (hoverText === '') {
+					if (hoverText === '' && parts.length > 1) {
 						parts.shift();
 						firstPart = parts[0].startsWith('$') || parts[0].startsWith('@') ? parts[0].slice(1) : parts[0];
+					}
+					else {
+						break;
 					}
 				}
 				return hoverText !== '' ? new vscode.Hover(hoverText) : undefined;
