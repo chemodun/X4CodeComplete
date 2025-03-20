@@ -876,95 +876,90 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(disposableDefinitionProvider);
 
   // Hover provider to display tooltips
-  context.subscriptions.push(
-    vscode.languages.registerHoverProvider(sel, {
-      provideHover: async (
-        document: vscode.TextDocument,
-        position: vscode.Position
-      ): Promise<vscode.Hover | undefined> => {
-        const tPattern =
-          /\{\s*(\d+)\s*,\s*(\d+)\s*\}|readtext\.\{\s*(\d+)\s*\}\.\{\s*(\d+)\s*\}|page="(\d+)"\s+line="(\d+)"/g;
-        // matches:
-        // {1015,7} or {1015, 7}
-        // readtext.{1015}.{7}
-        // page="1015" line="7"
+	context.subscriptions.push(
+		vscode.languages.registerHoverProvider(sel, {
+			provideHover: async (document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Hover | undefined> => {
+				const tPattern = /\{\s*(\d+)\s*,\s*(\d+)\s*\}|readtext\.\{\s*(\d+)\s*\}\.\{\s*(\d+)\s*\}|page="(\d+)"\s+line="(\d+)"/g;
+				// matches:
+				// {1015,7} or {1015, 7}
+				// readtext.{1015}.{7}
+				// page="1015" line="7"
 
-        const range = document.getWordRangeAtPosition(position, tPattern);
-        if (range) {
-          const text = document.getText(range);
-          const matches = tPattern.exec(text);
-          tPattern.lastIndex = 0; // Reset regex state
+				const range = document.getWordRangeAtPosition(position, tPattern);
+				if (range) {
+					const text = document.getText(range);
+					const matches = tPattern.exec(text);
+					tPattern.lastIndex = 0; // Reset regex state
 
-          if (matches && matches.length >= 3) {
-            let pageId: string | undefined;
-            let textId: string | undefined;
-            if (matches[1] && matches[2]) {
-              // {1015,7} or {1015, 7}
-              pageId = matches[1];
-              textId = matches[2];
-            } else if (matches[3] && matches[4]) {
-              // readtext.{1015}.{7}
-              pageId = matches[3];
-              textId = matches[4];
-            } else if (matches[5] && matches[6]) {
-              // page="1015" line="7"
-              pageId = matches[5];
-              textId = matches[6];
-            }
+					if (matches && matches.length >= 3) {
+						let pageId: string | undefined;
+						let textId: string | undefined;
+						if (matches[1] && matches[2]) { // {1015,7} or {1015, 7}
+								pageId = matches[1];
+								textId = matches[2];
+						} else if (matches[3] && matches[4]) { // readtext.{1015}.{7}
+								pageId = matches[3];
+								textId = matches[4];
+						} else if (matches[5] && matches[6]) { // page="1015" line="7"
+								pageId = matches[5];
+								textId = matches[6];
+						}
 
-            if (pageId && textId) {
-              if (exceedinglyVerbose) {
-                console.log(`Matched pattern: ${text}, pageId: ${pageId}, textId: ${textId}`);
-              }
-              const languageText = findLanguageText(pageId, textId);
-              if (languageText) {
-                const hoverText = new vscode.MarkdownString();
-                hoverText.appendMarkdown('```plaintext\n');
-                hoverText.appendMarkdown(languageText);
-                hoverText.appendMarkdown('\n```');
-                return new vscode.Hover(hoverText, range);
-              }
-            }
-            return undefined;
-          }
-        }
+						if (pageId && textId) {
+								if (exceedinglyVerbose) {
+										console.log(`Matched pattern: ${text}, pageId: ${pageId}, textId: ${textId}`);
+								}
+								const languageText = findLanguageText(pageId, textId);
+								if (languageText) {
+										const hoverText = new vscode.MarkdownString();
+										hoverText.appendMarkdown('```plaintext\n');
+										hoverText.appendMarkdown(languageText);
+										hoverText.appendMarkdown('\n```');
+										return new vscode.Hover(hoverText, range);
+								}
+						}
+						return undefined;
+					}
+				}
+				
+				const hoverWord = document.getText(document.getWordRangeAtPosition(position));
+				const phraseRegex = /([.]*[$@]*[a-zA-Z0-9_-{}])+/g;
+				const phrase = document.getText(document.getWordRangeAtPosition(position, phraseRegex));
+				const hoverWordIndex = phrase.lastIndexOf(hoverWord);
+				const slicedPhrase = phrase.slice(0, hoverWordIndex + hoverWord.length);
+				const parts = slicedPhrase.split('.');
+				let firstPart = parts[0].startsWith('$') || parts[0].startsWith('@') ? parts[0].slice(1) : parts[0];
+				
+				if (debug) {
+					console.log("Hover word: ", hoverWord);
+					console.log("Phrase: ", phrase);
+					console.log("Sliced phrase: ", slicedPhrase);
+					console.log("Parts: ", parts);
+					console.log("First part: ", firstPart);
+				}
 
-        const hoverWord = document.getText(document.getWordRangeAtPosition(position));
-        const phraseRegex = /([.]*[$@]*[a-zA-Z0-9_-{}])+/g;
-        const phrase = document.getText(document.getWordRangeAtPosition(position, phraseRegex));
-        const hoverWordIndex = phrase.lastIndexOf(hoverWord);
-        const slicedPhrase = phrase.slice(0, hoverWordIndex + hoverWord.length);
-        const parts = slicedPhrase.split('.');
-        let firstPart = parts[0].startsWith('$') || parts[0].startsWith('@') ? parts[0].slice(1) : parts[0];
-
-        if (debug) {
-          console.log('Hover word: ', hoverWord);
-          console.log('Phrase: ', phrase);
-          console.log('Sliced phrase: ', slicedPhrase);
-          console.log('Parts: ', parts);
-          console.log('First part: ', firstPart);
-        }
-
-        let hoverText = '';
-        while (hoverText === '' && parts.length > 0) {
-          let keyword = keywords.find((k: Keyword) => k.$.name === firstPart);
-          if (!keyword || keyword.import) {
-            keyword = datatypes.find((d: Datatype) => d.$.name === firstPart);
-          }
-          if (keyword && firstPart !== hoverWord) {
-            hoverText += generateKeywordText(keyword, datatypes, parts);
-          }
-          // Always append hover word details, ensuring full datatype properties for exact matches
-          hoverText += generateHoverWordText(hoverWord, keywords, datatypes);
-          if (hoverText === '') {
+				let hoverText = '';
+				while (hoverText === '' && parts.length > 0) {
+					let keyword = keywords.find((k: Keyword) => k.$.name === firstPart);
+					if (!keyword || keyword.import) {
+						keyword = datatypes.find((d: Datatype) => d.$.name === firstPart);
+					}
+					if (keyword && firstPart !== hoverWord) {
+						hoverText += generateKeywordText(keyword, datatypes, parts);
+					}
+					// Always append hover word details, ensuring full datatype properties for exact matches
+					hoverText += generateHoverWordText(hoverWord, keywords, datatypes);
+          if (hoverText === '' && parts.length > 1) {
             parts.shift();
             firstPart = parts[0].startsWith('$') || parts[0].startsWith('@') ? parts[0].slice(1) : parts[0];
+          } else {
+            break;
           }
-        }
-        return hoverText !== '' ? new vscode.Hover(hoverText) : undefined;
-      },
-    })
-  );
+				}
+				return hoverText !== '' ? new vscode.Hover(hoverText) : undefined;
+			},
+		})
+	);
 }
 
 // this method is called when your extension is deactivated
