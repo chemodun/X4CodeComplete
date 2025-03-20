@@ -26,6 +26,9 @@ I highly recommend using this in conjunction with [these instructions](https://f
 ## Features
 
 XML code complete for Visual Studio Code. Currently completes entries from scriptproperties.xml.
+Basic support of variables, i.e. possibility to use next points in context menu on it:
+`Go to Definition`, `Find All References`, and `Symbol Rename` - i.e. `F2` on variable name.
+**Notice:** Doesn't support namespaces yet. Scope of variable now the whole file.
 
 ## Requirements
 
