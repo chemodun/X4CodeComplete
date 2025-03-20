@@ -392,20 +392,22 @@ function isValidXmlDocument(document: vscode.TextDocument): boolean {
   }
 
   const text = document.getText();
-  const parser = new xml2js.Parser({ explicitArray: false });
-
+  const parser = sax.parser(false); // Use non-strict mode for lightweight validation
   let isValid = false;
-  parser.parseString(text, (err, result) => {
-    if (err) {
-      return; // Not a valid XML document
-    }
 
-    // Check if the root element is <aiscript> or <md>
-    const rootElement = Object.keys(result)[0];
-    if (rootElement === 'aiscript' || rootElement === 'mdscript') {
+  parser.onopentag = (node) => {
+    // Check if the root element is <aiscript> or <mdscript>
+    if (node.name.toLowerCase() === 'aiscript' || node.name.toLowerCase() === 'mdscript') {
       isValid = true;
     }
-  });
+    parser.close(); // Stop parsing as soon as the root element is identified
+  };
+
+  try {
+    parser.write(text).close();
+  } catch {
+    // Will not react, as we have only one possibility to get a true
+  }
 
   return isValid;
 }
@@ -438,13 +440,22 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
       const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
       let match: RegExpExecArray | null;
 
-      while (typeof attrValue === 'string' && (match = variablePattern.exec(attrValue)) !== null) {
-        const variableName = match[1];
-        const attrStartIndex = text.indexOf(attrValue, currentElementStartIndex || 0) + match.index;
+      if (currentElement === 'param' && attrName === 'name' && typeof attrValue === 'string') {
+        const variableName = attrValue;
+        const attrStartIndex = text.indexOf(attrValue, currentElementStartIndex || 0);
         const start = document.positionAt(attrStartIndex);
-        const end = document.positionAt(attrStartIndex + match[0].length);
+        const end = document.positionAt(attrStartIndex + variableName.length);
 
         variableTracker.addVariable(variableName, document.uri, new vscode.Range(start, end));
+      } else {
+        while (typeof attrValue === 'string' && (match = variablePattern.exec(attrValue)) !== null) {
+          const variableName = match[1];
+          const attrStartIndex = text.indexOf(attrValue, currentElementStartIndex || 0) + match.index;
+          const start = document.positionAt(attrStartIndex);
+          const end = document.positionAt(attrStartIndex + match[0].length);
+
+          variableTracker.addVariable(variableName, document.uri, new vscode.Range(start, end));
+        }
       }
     }
   };
@@ -452,17 +463,6 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
   parser.onclosetag = () => {
     currentElement = null;
     currentElementStartIndex = null;
-  };
-
-  parser.onattribute = (attr) => {
-    if (currentElement === 'param' && attr.name === 'name') {
-      const variableName = attr.value;
-      const attrStartIndex = text.indexOf(attr.value, currentElementStartIndex || 0);
-      const start = document.positionAt(attrStartIndex);
-      const end = document.positionAt(attrStartIndex + variableName.length);
-
-      variableTracker.addVariable(variableName, document.uri, new vscode.Range(start, end));
-    }
   };
 
   parser.onerror = (err) => {
