@@ -34,17 +34,17 @@
           "default": "",
           "description": "Path to your extensions directory."
         },
-        "x4CodeComplete.languageNumber": {
+        "x4CodeComplete-lua.languageNumber": {
           "type": "string",
           "default": "44",
           "description": "Preferred language number (e.g., '44' for English). Files matching this number will be displayed first."
         },
-        "x4CodeComplete.limitLanguageOutput": {
+        "x4CodeComplete-lua.limitLanguageOutput": {
           "type": "boolean",
           "default": false,
           "description": "Limits the language output to show only the preferred language."
         },
-        "x4CodeComplete.exceedinglyVerbose": {
+        "x4CodeComplete-lua.exceedinglyVerbose": {
           "type": "boolean",
           "default": false,
           "description": "Spams the log with info on autocomplete options. Useful for development and debugging, and not much else. May degrade performance significantly."
