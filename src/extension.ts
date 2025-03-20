@@ -343,77 +343,77 @@ class LocationDict implements vscode.DefinitionProvider {
 }
 
 class VariableTracker {
-	variableLocations: Map<string, vscode.Location[]> = new Map();
+  variableLocations: Map<string, vscode.Location[]> = new Map();
 
-	addVariable(name: string, uri: vscode.Uri, range: vscode.Range): void {
-		const normalizedName = name.startsWith('$') ? name.substring(1) : name;
-		if (!this.variableLocations.has(normalizedName)) {
-			this.variableLocations.set(normalizedName, []);
-		}
-		this.variableLocations.get(normalizedName)?.push(new vscode.Location(uri, range));
-	}
+  addVariable(name: string, uri: vscode.Uri, range: vscode.Range): void {
+    const normalizedName = name.startsWith('$') ? name.substring(1) : name;
+    if (!this.variableLocations.has(normalizedName)) {
+      this.variableLocations.set(normalizedName, []);
+    }
+    this.variableLocations.get(normalizedName)?.push(new vscode.Location(uri, range));
+  }
 
-	getVariableLocations(name: string, document: vscode.TextDocument): vscode.Location[] {
-		// Normalize the variable name (strip '$' for comparison)
-		const normalizedName = name.startsWith('$') ? name.substring(1) : name;
+  getVariableLocations(name: string, document: vscode.TextDocument): vscode.Location[] {
+    // Normalize the variable name (strip '$' for comparison)
+    const normalizedName = name.startsWith('$') ? name.substring(1) : name;
 
-		// Filter locations based on the normalized name and usage context
-		return (this.variableLocations.get(normalizedName) || []).filter(location => {
-			const lineText = document.lineAt(location.range.start.line).text;
+    // Filter locations based on the normalized name and usage context
+    return (this.variableLocations.get(normalizedName) || []).filter((location) => {
+      const lineText = document.lineAt(location.range.start.line).text;
 
-			// Exclude variables with a '.' before the '$'
-			if (lineText.charAt(location.range.start.character - 1) === '.') {
-				return false;
-			}
+      // Exclude variables with a '.' before the '$'
+      if (lineText.charAt(location.range.start.character - 1) === '.') {
+        return false;
+      }
 
-			// Include variables matching either $something or <param name="something" ...>
-			return lineText.includes(`$${normalizedName}`) || lineText.includes(`<param name="${normalizedName}"`);
-		});
-	}
+      // Include variables matching either $something or <param name="something" ...>
+      return lineText.includes(`$${normalizedName}`) || lineText.includes(`<param name="${normalizedName}"`);
+    });
+  }
 
-	updateVariableName(oldName: string, newName: string): void {
-		const normalizedOldName = oldName.startsWith('$') ? oldName.substring(1) : oldName;
-		const normalizedNewName = newName.startsWith('$') ? newName.substring(1) : newName;
+  updateVariableName(oldName: string, newName: string): void {
+    const normalizedOldName = oldName.startsWith('$') ? oldName.substring(1) : oldName;
+    const normalizedNewName = newName.startsWith('$') ? newName.substring(1) : newName;
 
-		if (this.variableLocations.has(normalizedOldName)) {
-			const locations = this.variableLocations.get(normalizedOldName);
-			this.variableLocations.delete(normalizedOldName);
-			this.variableLocations.set(normalizedNewName, locations || []);
-		}
-	}
+    if (this.variableLocations.has(normalizedOldName)) {
+      const locations = this.variableLocations.get(normalizedOldName);
+      this.variableLocations.delete(normalizedOldName);
+      this.variableLocations.set(normalizedNewName, locations || []);
+    }
+  }
 }
 
 const variableTracker = new VariableTracker();
 
 function trackVariablesInDocument(document: vscode.TextDocument): void {
-	// Clear existing variable locations for this document
-	for (const [name, locations] of variableTracker.variableLocations.entries()) {
-		variableTracker.variableLocations.set(
-			name,
-			locations.filter(location => location.uri.toString() !== document.uri.toString())
-		);
-	}
+  // Clear existing variable locations for this document
+  for (const [name, locations] of variableTracker.variableLocations.entries()) {
+    variableTracker.variableLocations.set(
+      name,
+      locations.filter((location) => location.uri.toString() !== document.uri.toString())
+    );
+  }
 
-	// Re-track variables in the document
-	const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)|<param\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"/g;
-	const text = document.getText();
-	let match: RegExpExecArray | null;
+  // Re-track variables in the document
+  const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)|<param\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"/g;
+  const text = document.getText();
+  let match: RegExpExecArray | null;
 
-	while ((match = variablePattern.exec(text)) !== null) {
-		const variableName = match[1] || match[2]; // Use the first capturing group ($something) or the second (<param name="something")
-		if (variableName) {
-			const start = document.positionAt(match.index + match[0].indexOf(variableName));
-			const end = document.positionAt(match.index + match[0].indexOf(variableName) + variableName.length);
-			variableTracker.addVariable(variableName, document.uri, new vscode.Range(start, end));
-		}
-	}
+  while ((match = variablePattern.exec(text)) !== null) {
+    const variableName = match[1] || match[2]; // Use the first capturing group ($something) or the second (<param name="something")
+    if (variableName) {
+      const start = document.positionAt(match.index + match[0].indexOf(variableName));
+      const end = document.positionAt(match.index + match[0].indexOf(variableName) + variableName.length);
+      variableTracker.addVariable(variableName, document.uri, new vscode.Range(start, end));
+    }
+  }
 }
 
 // Refresh variable locations when a document is opened
 vscode.workspace.onDidOpenTextDocument(trackVariablesInDocument);
 
 // Refresh variable locations when a document is edited
-vscode.workspace.onDidChangeTextDocument(event => trackVariablesInDocument(event.document));
+vscode.workspace.onDidChangeTextDocument((event) => trackVariablesInDocument(event.document));
 
 let completionProvider = new CompletionDict();
 let definitionProvider = new LocationDict();
@@ -707,7 +707,7 @@ function generateKeywordText(keyword: any, datatypes: Datatype[], parts: string[
   const pseudo = keyword.$.pseudo;
   const suffix = keyword.$.suffix;
   const result = keyword.$.result;
-  
+
   let hoverText = `Keyword: ${keyword.$.name}\n
   ${description ? 'Description: ' + description + '\n' : ''}
   ${pseudo ? 'Pseudo: ' + pseudo + '\n' : ''}
@@ -720,7 +720,7 @@ function generateKeywordText(keyword: any, datatypes: Datatype[], parts: string[
   // Iterate over parts of the path (excluding the first part which is the keyword itself)
   for (let i = 1; i < parts.length; i++) {
     let properties: ScriptProperty[] = [];
-    
+
     // Ensure currentPropertyList is iterable
     if (!Array.isArray(currentPropertyList)) {
       currentPropertyList = [];
@@ -779,20 +779,20 @@ function generateKeywordText(keyword: any, datatypes: Datatype[], parts: string[
 
 function generateHoverWordText(hoverWord: string, keywords: Keyword[], datatypes: Datatype[]): string {
   let hoverText = '';
-  
+
   // Find keywords that match the hoverWord either in their name or property names
   const matchingKeynames = keywords.filter(
     (k: Keyword) =>
       k.$.name.includes(hoverWord) || k.property?.some((p: ScriptProperty) => p.$.name.includes(hoverWord))
   );
-  
+
   // Find datatypes that match the hoverWord either in their name or property names
   const matchingDatatypes = datatypes.filter(
     (d: Datatype) =>
       d.$.name.includes(hoverWord) || // Check if datatype name includes hoverWord
       d.property?.some((p: ScriptProperty) => p.$.name.includes(hoverWord)) // Check if any property name includes hoverWord
   );
-  
+
   if (debug) {
     console.log('matchingKeynames:', matchingKeynames);
     console.log('matchingDatatypes:', matchingDatatypes);
