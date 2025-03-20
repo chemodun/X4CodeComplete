@@ -579,7 +579,7 @@ function findLanguageText(pageId: string, textId: string): string {
         console.log(`Processing filename: ${fileName}`);
 
         if (fileName === '0001.xml') {
-          fileNumber = '44'; // Special case for 0001.xml
+          fileNumber = '*'; // Special case for 0001.xml
         } else {
           // Try matching 0001-<letter><number>.xml (e.g., 0001-l007.xml)
           const matchWithLetter = fileName.match(/0001-[a-zA-Z](\d+)\.xml$/);
@@ -600,16 +600,7 @@ function findLanguageText(pageId: string, textId: string): string {
 
         console.log(`Extracted fileNumber: ${fileNumber} from ${fileName}`);
 
-        if (limitLanguage) {
-          if (fileNumber == preferredLanguageNumber) {
-            allMatches.push({
-              fileNumber,
-              text: text._.split('\n')
-                .map((line: string) => `${fileNumber}: ${line}`)
-                .join('\n'),
-            });
-          }
-        } else {
+        if (!limitLanguage || fileNumber == '*' || fileNumber == preferredLanguageNumber) {
           allMatches.push({
             fileNumber,
             text: text._.split('\n')
