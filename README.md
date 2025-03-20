@@ -1,6 +1,6 @@
-## archie's updates
+# updates
 
-### 1.1
+## 1.1
 
 added documentation tooltips and bug fixes (whitespace changes too)
 
@@ -10,13 +10,15 @@ added documentation tooltips and bug fixes (whitespace changes too)
 
 (1.1.3) bug fixes
 
-### 1.2
+## 1.2
 
 t-file text
 
 (1.2.1) added preferred language display option and bug fix
 
-# x4codecomplete README
+(1.2.2) additional bug fixes and diff add handling
+
+## x4codecomplete README
 
 To install, go to releases & download the .vsix file. Then install it like any other program.
 I highly recommend using this in conjunction with [these instructions](https://forum.egosoft.com/viewtopic.php?f=181&t=416621) by ledhead900, but it's not technically a requirement.
