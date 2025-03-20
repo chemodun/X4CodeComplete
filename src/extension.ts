@@ -634,7 +634,7 @@ function generateKeywordText(keyword: any, datatypes: Datatype[], parts: string[
   const pseudo = keyword.$.pseudo;
   const suffix = keyword.$.suffix;
   const result = keyword.$.result;
-
+  
   let hoverText = `Keyword: ${keyword.$.name}\n
   ${description ? 'Description: ' + description + '\n' : ''}
   ${pseudo ? 'Pseudo: ' + pseudo + '\n' : ''}
@@ -647,7 +647,7 @@ function generateKeywordText(keyword: any, datatypes: Datatype[], parts: string[
   // Iterate over parts of the path (excluding the first part which is the keyword itself)
   for (let i = 1; i < parts.length; i++) {
     let properties: ScriptProperty[] = [];
-
+    
     // Ensure currentPropertyList is iterable
     if (!Array.isArray(currentPropertyList)) {
       currentPropertyList = [];
@@ -706,20 +706,20 @@ function generateKeywordText(keyword: any, datatypes: Datatype[], parts: string[
 
 function generateHoverWordText(hoverWord: string, keywords: Keyword[], datatypes: Datatype[]): string {
   let hoverText = '';
-
+  
   // Find keywords that match the hoverWord either in their name or property names
   const matchingKeynames = keywords.filter(
     (k: Keyword) =>
       k.$.name.includes(hoverWord) || k.property?.some((p: ScriptProperty) => p.$.name.includes(hoverWord))
   );
-
+  
   // Find datatypes that match the hoverWord either in their name or property names
   const matchingDatatypes = datatypes.filter(
     (d: Datatype) =>
       d.$.name.includes(hoverWord) || // Check if datatype name includes hoverWord
       d.property?.some((p: ScriptProperty) => p.$.name.includes(hoverWord)) // Check if any property name includes hoverWord
   );
-
+  
   if (debug) {
     console.log('matchingKeynames:', matchingKeynames);
     console.log('matchingDatatypes:', matchingDatatypes);
