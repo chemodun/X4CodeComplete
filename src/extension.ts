@@ -395,15 +395,17 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
 	}
 
 	// Re-track variables in the document
-	const variablePattern = /\$[a-zA-Z_][a-zA-Z0-9_]*|<param\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"/g;
+	const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)|<param\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"/g;
 	const text = document.getText();
 	let match: RegExpExecArray | null;
 
 	while ((match = variablePattern.exec(text)) !== null) {
-		const variableName = match[0].startsWith('$') ? match[0] : match[1];
-		const start = document.positionAt(match.index);
-		const end = document.positionAt(match.index + match[0].length);
-		variableTracker.addVariable(variableName, document.uri, new vscode.Range(start, end));
+		const variableName = match[1] || match[2]; // Use the first capturing group ($something) or the second (<param name="something")
+		if (variableName) {
+			const start = document.positionAt(match.index + match[0].indexOf(variableName));
+			const end = document.positionAt(match.index + match[0].indexOf(variableName) + variableName.length);
+			variableTracker.addVariable(variableName, document.uri, new vscode.Range(start, end));
+		}
 	}
 }
 
