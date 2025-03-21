@@ -391,6 +391,26 @@ class VariableTracker {
     return variableMap.get(normalizedName) || [];
   }
 
+  getVariableAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): [string, string, vscode.Location, vscode.Location[]] | [] {
+    // Retrieve the variable type map for the document
+    const typesMap = this.documentVariables.get(document.uri.toString());
+    if (!typesMap) {
+      return [];
+    }
+    for (const [variablesType, variablesPerType] of typesMap) {
+      for (const [variableName, variableLocations] of variablesPerType) {
+        const variableLocation = variableLocations.find((loc) => loc.range.contains(position));
+        if (variableLocation) {
+          return [variableName, variablesType, variableLocation, variableLocations];
+        }
+      }
+    }
+    return [];
+  }
+
   updateVariableName(type: string, oldName: string, newName: string, document: vscode.TextDocument): void {
     const normalizedOldName = oldName.startsWith('$') ? oldName.substring(1) : oldName;
     const normalizedNewName = newName.startsWith('$') ? newName.substring(1) : newName;
@@ -1133,25 +1153,17 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
 
-        for (const [documentUri, variablesPerTypes] of variableTracker.documentVariables.entries()) {
-          for (const [variablesType, variablesPerType] of variablesPerTypes) {
-            for (const [variableName, variableLocations] of variablesPerType) {
-              // for (const variableLocation of variableLocations.values()) {
-              const variableLocation = variableLocations.find((loc) => loc.range.contains(position));
-              if (variableLocation) {
-                if (exceedinglyVerbose) {
-                  console.log(`Hovering over variable: ${variableName}`);
-                }
-
-                // Generate hover text for the variable
-                const hoverText = new vscode.MarkdownString();
-                hoverText.appendMarkdown(`**Variable:** \`${variableName}\`\n\n`);
-                hoverText.appendMarkdown(`There is ${variablesType} variable \`${variableName}\`.\n`);
-                return new vscode.Hover(hoverText, variableLocation.range);
-              }
-              // }
-            }
+        const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
+        if (variableAtPosition.length === 4) {
+          if (exceedinglyVerbose) {
+            console.log(`Hovering over variable: ${variableAtPosition[0]}`);
           }
+
+          // Generate hover text for the variable
+          const hoverText = new vscode.MarkdownString();
+          hoverText.appendMarkdown(`**Variable:** \`${variableAtPosition[0]}\`\n\n`);
+          hoverText.appendMarkdown(`There is ${variableAtPosition[1]} variable \`${variableAtPosition[0]}\`.\n`); // Updated to use variableAtPosition[0]
+          return new vscode.Hover(hoverText, variableAtPosition[2].range); // Updated to use variableAtPosition[0].range
         }
 
         const hoverWord = document.getText(document.getWordRangeAtPosition(position));
@@ -1193,21 +1205,14 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Extract variable name from the current position in the document
-  function extractVariableName(document: vscode.TextDocument, position: vscode.Position): string | undefined {
-    const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)|<param\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"/;
-    const wordRange = document.getWordRangeAtPosition(position, variablePattern);
-    if (wordRange) {
-      const match = document.getText(wordRange).match(variablePattern);
-      return match?.[1] || match?.[2]; // Use the first capturing group ($something) or the second <param name="(something)"
-    }
-    return undefined;
-  }
-
   definitionProvider.provideDefinition = (document: vscode.TextDocument, position: vscode.Position) => {
-    const variableName = extractVariableName(document, position);
-    if (variableName) {
-      const locations = variableTracker.getVariableLocations('normal', variableName, document);
+    const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
+    if (variableAtPosition.length === 4) {
+      const locations = variableAtPosition[3];
+      if (exceedinglyVerbose) {
+        console.log(`Definition found for variable: ${variableAtPosition[0]}`);
+        console.log(`Locations:`, locations);
+      }
       return locations.length > 0 ? locations[0] : undefined; // Return the first location or undefined
     }
     return undefined;
@@ -1216,9 +1221,14 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerReferenceProvider(sel, {
       provideReferences(document: vscode.TextDocument, position: vscode.Position, context: vscode.ReferenceContext) {
-        const variableName = extractVariableName(document, position);
-        if (variableName) {
-          return variableTracker.getVariableLocations('normal', variableName, document);
+        const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
+        if (variableAtPosition.length === 4) {
+          const locations = variableAtPosition[3];
+          if (exceedinglyVerbose) {
+            console.log(`References found for variable: ${variableAtPosition[0]}`);
+            console.log(`Locations:`, locations);
+          }
+          return locations;
         }
         return [];
       },
@@ -1228,13 +1238,14 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerRenameProvider(sel, {
       provideRenameEdits(document: vscode.TextDocument, position: vscode.Position, newName: string) {
-        const variableName = extractVariableName(document, position);
-        if (variableName) {
-          const locations = variableTracker.getVariableLocations('normal', variableName, document);
+        const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
+        if (variableAtPosition.length === 4) {
+          const variableName = variableAtPosition[0];
+          const locations = variableAtPosition[3];
 
           if (exceedinglyVerbose) {
             // Debug log: Print old name, new name, and locations
-            console.log(`Renaming variable: ${variableName} -> ${newName}`);
+            console.log(`Renaming variable: ${variableName} -> ${newName}`); // Updated to use variableAtPosition[0]
             console.log(`Locations to update:`, locations);
           }
           const workspaceEdit = new vscode.WorkspaceEdit();
