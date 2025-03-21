@@ -1,6 +1,23 @@
-# updates
+# X4CodeComplete
 
-## 1.1
+## Version History
+
+### 1.3
+
+(1.3.0) Variables support
+
+Go to Definition, Find All References, and Symbol Rename - i.e. F2 on variable name.
+Notice: Doesn't support namespaces yet. Scope of variable now the whole file.
+
+### 1.2
+
+t-file text
+
+(1.2.1) added preferred language display option and bug fix
+
+(1.2.2) additional bug fixes and diff add handling
+
+### 1.1
 
 added documentation tooltips and bug fixes (whitespace changes too)
 
@@ -10,15 +27,7 @@ added documentation tooltips and bug fixes (whitespace changes too)
 
 (1.1.3) bug fixes
 
-## 1.2
-
-t-file text
-
-(1.2.1) added preferred language display option and bug fix
-
-(1.2.2) additional bug fixes and diff add handling
-
-## x4codecomplete README
+## README
 
 To install, go to releases & download the .vsix file. Then install it like any other program.
 I highly recommend using this in conjunction with [these instructions](https://forum.egosoft.com/viewtopic.php?f=181&t=416621) by ledhead900, but it's not technically a requirement.
@@ -26,26 +35,23 @@ I highly recommend using this in conjunction with [these instructions](https://f
 ## Features
 
 XML code complete for Visual Studio Code. Currently completes entries from scriptproperties.xml.
+
+Hover documentation for script and xsd properties.
+
+Hovertext for t-file references.
+
 Basic support of variables, i.e. possibility to use next points in context menu on it:
 `Go to Definition`, `Find All References`, and `Symbol Rename` - i.e. `F2` on variable name.
 Can separately process with "usual" variables and "remote" ones or table fields.
 **Notice:** Doesn't support namespaces yet. Scope of variable now the whole file.
 
-## Requirements
-
-None yet
-
 ## Extension Settings
 
-Exceedingly Verbose: enables debug logging. Defaults to false
+Paths: extensions folder and vanilla extracted files folder. Default: none
 
-Script Properties Location: Absolute path to scriptproperties.xml, including scriptproperties.xml in the path. REQUIRED, no default.
+Exceedingly Verbose: enables debug logging. Default: false
 
-## Known Issues
-
-None yet
-
-## Release Notes
+## Original Release Notes (thank you Cgetty)
 
 ### 1.0.0
 
