@@ -19,6 +19,8 @@ let languageFiles: Map<string, any> = new Map();
 
 // Map to store languageSubId for each document
 const documentLanguageSubIdMap: Map<string, string> = new Map();
+const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+const tableKeyPattern = /table\[/;
 
 // Add settings validation function
 function validateSettings(config: vscode.WorkspaceConfiguration): boolean {
@@ -505,10 +507,8 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
 
     // Check for variables in attributes
     for (const [attrName, attrValue] of Object.entries(node.attributes)) {
-      const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
       let match: RegExpExecArray | null;
       let tableIsFound = false;
-      const tableKeyPattern = /table\[/;
       if (typeof attrValue === 'string') {
         const attrStartIndex = text.indexOf(attrValue, currentElementStartIndex || 0);
         if (node.name === 'param' && tagStack[tagStack.length - 2] === 'params' && attrName === 'name') {
@@ -520,7 +520,7 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
 
           variableTracker.addVariable('normal', variableName, document.uri, new vscode.Range(start, end));
         } else {
-          tableIsFound = tableKeyPattern.exec(attrValue) !== null;
+          tableIsFound = tableKeyPattern.test(attrValue);
           while (typeof attrValue === 'string' && (match = variablePattern.exec(attrValue)) !== null) {
             const variableName = match[1];
             const variableStartIndex = attrStartIndex + match.index;
@@ -1319,4 +1319,6 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 // this method is called when your extension is deactivated
-export function deactivate() {}
+export function deactivate() {
+  console.log('Deactivated');
+}
