@@ -721,8 +721,9 @@ function findLanguageText(pageId: string, textId: string): string {
         const fileName = path.basename(filePath);
         let fileNumber: string;
 
-        console.log(`Processing filename: ${fileName}`);
-
+        if (exceedinglyVerbose) {
+          console.log(`Processing filename: ${fileName}`);
+        }
         if (fileName === '0001.xml') {
           fileNumber = '*'; // Special case for 0001.xml
         } else {
@@ -743,8 +744,9 @@ function findLanguageText(pageId: string, textId: string): string {
           }
         }
 
-        console.log(`Extracted fileNumber: ${fileNumber} from ${fileName}`);
-
+        if (exceedinglyVerbose) {
+          console.log(`Extracted fileNumber: ${fileNumber} from ${fileName}`);
+        }
         if (!limitLanguage || fileNumber == '*' || fileNumber == preferredLanguageNumber) {
           allMatches.push({
             fileNumber,
@@ -1169,18 +1171,21 @@ export function activate(context: vscode.ExtensionContext) {
         if (variableName) {
           const locations = variableTracker.getVariableLocations(variableName, document);
 
-          // Debug log: Print old name, new name, and locations
-          console.log(`Renaming variable: ${variableName} -> ${newName}`);
-          console.log(`Locations to update:`, locations);
-
+          if (exceedinglyVerbose) {
+            // Debug log: Print old name, new name, and locations
+            console.log(`Renaming variable: ${variableName} -> ${newName}`);
+            console.log(`Locations to update:`, locations);
+          }
           const workspaceEdit = new vscode.WorkspaceEdit();
           locations.forEach((location) => {
             // Debug log: Print each edit
             const rangeText = location.range ? document.getText(location.range) : '';
             const replacementText = rangeText.startsWith('$') ? `$${newName}` : newName;
-            console.log(
-              `Editing file: ${location.uri.fsPath}, Range: ${location.range}, Old Text: ${rangeText}, New Text: ${replacementText}`
-            );
+            if (exceedinglyVerbose) {
+              console.log(
+                `Editing file: ${location.uri.fsPath}, Range: ${location.range}, Old Text: ${rangeText}, New Text: ${replacementText}`
+              );
+            }
             workspaceEdit.replace(location.uri, location.range, replacementText);
           });
 
@@ -1191,7 +1196,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         // Debug log: No variable name found
-        console.log(`No variable name found at position: ${position}`);
+        if (exceedinglyVerbose) {
+          console.log(`No variable name found at position: ${position}`);
+        }
         return undefined;
       },
     })
