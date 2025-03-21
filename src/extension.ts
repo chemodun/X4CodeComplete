@@ -1166,7 +1166,6 @@ export function activate(context: vscode.ExtensionContext) {
           if (exceedinglyVerbose) {
             console.log(`Hovering over variable: ${variableAtPosition[0]}`);
           }
-
           // Generate hover text for the variable
           const hoverText = new vscode.MarkdownString();
           hoverText.appendMarkdown(`**Variable:** \`${variableAtPosition[0]}\`\n\n`);
@@ -1249,11 +1248,13 @@ export function activate(context: vscode.ExtensionContext) {
         const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
         if (variableAtPosition.length === 4) {
           const variableName = variableAtPosition[0];
+          const variableType = variableAtPosition[1];
           const locations = variableAtPosition[3];
 
           if (exceedinglyVerbose) {
             // Debug log: Print old name, new name, and locations
             console.log(`Renaming variable: ${variableName} -> ${newName}`); // Updated to use variableAtPosition[0]
+            console.log(`Variable type: ${variableType}`);
             console.log(`Locations to update:`, locations);
           }
           const workspaceEdit = new vscode.WorkspaceEdit();
@@ -1270,7 +1271,7 @@ export function activate(context: vscode.ExtensionContext) {
           });
 
           // Update the tracker with the new name
-          variableTracker.updateVariableName('normal', variableName, newName, document);
+          variableTracker.updateVariableName(variableType, variableName, newName, document);
 
           return workspaceEdit;
         }
