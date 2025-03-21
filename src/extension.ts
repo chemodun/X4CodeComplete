@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as xml2js from 'xml2js';
 import * as xpath from 'xml2js-xpath';
 import * as path from 'path';
+import * as sax from 'sax';
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -15,6 +16,19 @@ var rootpath: string;
 var scriptPropertiesPath: string;
 var extensionsFolder: string;
 let languageFiles: Map<string, any> = new Map();
+
+// Map to store languageSubId for each document
+const documentLanguageSubIdMap: Map<string, string> = new Map();
+const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+const tableKeyPattern = /table\[/;
+const variableTypes = {
+  normal: '_variable_',
+  tableKey: '_remote variable_ or _table field_',
+};
+const scriptTypes = {
+  aiscript: 'AI Script',
+  mdscript: 'Mission Director Script',
+};
 
 // Add settings validation function
 function validateSettings(config: vscode.WorkspaceConfiguration): boolean {
@@ -207,6 +221,9 @@ class CompletionDict implements vscode.CompletionItemProvider {
   }
 
   provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
+    if (getDocumentScriptType(document) == '') {
+      return undefined; // Skip if the document is not valid
+    }
     let items = new Map<string, vscode.CompletionItem>();
     let prefix = document.lineAt(position).text.substring(0, position.character);
     let interesting = findRelevantPortion(prefix);
@@ -328,6 +345,9 @@ class LocationDict implements vscode.DefinitionProvider {
   }
 
   provideDefinition(document: vscode.TextDocument, position: vscode.Position) {
+    if (getDocumentScriptType(document) == '') {
+      return undefined; // Skip if the document is not valid
+    }
     let line = document.lineAt(position).text;
     let start = line.lastIndexOf('"', position.character);
     let end = line.indexOf('"', position.character);
@@ -340,6 +360,253 @@ class LocationDict implements vscode.DefinitionProvider {
     } while (relevant.indexOf('.') !== -1);
     return undefined;
   }
+}
+
+class VariableTracker {
+  // Map to store variables per document and type: Map<DocumentURI, Map<VariableType, Map<VariableName, vscode.Location[]>>>
+  documentVariables: Map<string, { scriptType: string; variables: Map<string, Map<string, vscode.Location[]>> }> =
+    new Map();
+
+  addVariable(type: string, name: string, scriptType: string, uri: vscode.Uri, range: vscode.Range): void {
+    const normalizedName = name.startsWith('$') ? name.substring(1) : name;
+
+    // Get or create the variable type map for the document
+    if (!this.documentVariables.has(uri.toString())) {
+      this.documentVariables.set(uri.toString(), { scriptType: scriptType, variables: new Map() });
+    }
+    const typeMap = this.documentVariables.get(uri.toString())!.variables;
+
+    // Get or create the variable map for the type
+    if (!typeMap.has(type)) {
+      typeMap.set(type, new Map());
+    }
+    const variableMap = typeMap.get(type)!;
+
+    // Add the variable to the map
+    if (!variableMap.has(normalizedName)) {
+      variableMap.set(normalizedName, []);
+    }
+    variableMap.get(normalizedName)?.push(new vscode.Location(uri, range));
+  }
+
+  getVariableLocations(type: string, name: string, document: vscode.TextDocument): vscode.Location[] {
+    const normalizedName = name.startsWith('$') ? name.substring(1) : name;
+
+    // Retrieve the variable type map for the document
+    const documentData = this.documentVariables.get(document.uri.toString());
+    if (!documentData) {
+      return [];
+    }
+
+    // Retrieve the variable map for the type
+    const variableMap = documentData.variables.get(type);
+    if (!variableMap) {
+      return [];
+    }
+
+    // Return the locations for the variable
+    return variableMap.get(normalizedName) || [];
+  }
+
+  getVariableAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): {
+    name: string;
+    type: string;
+    location: vscode.Location;
+    locations: vscode.Location[];
+    scriptType: string;
+  } | null {
+    // Retrieve the variable type map for the document
+    const documentData = this.documentVariables.get(document.uri.toString());
+    if (!documentData) {
+      return null; // Change from [] to null
+    }
+    for (const [variablesType, variablesPerType] of documentData.variables) {
+      for (const [variableName, variableLocations] of variablesPerType) {
+        const variableLocation = variableLocations.find((loc) => loc.range.contains(position));
+        if (variableLocation) {
+          return {
+            name: variableName,
+            type: variablesType,
+            location: variableLocation,
+            locations: variableLocations,
+            scriptType: documentData.scriptType,
+          };
+        }
+      }
+    }
+    return null; // Change from [] to null
+  }
+
+  updateVariableName(type: string, oldName: string, newName: string, document: vscode.TextDocument): void {
+    const normalizedOldName = oldName.startsWith('$') ? oldName.substring(1) : oldName;
+    const normalizedNewName = newName.startsWith('$') ? newName.substring(1) : newName;
+
+    // Retrieve the variable type map for the document
+    const documentData = this.documentVariables.get(document.uri.toString());
+    if (!documentData) {
+      return;
+    }
+
+    // Retrieve the variable map for the type
+    const variableMap = documentData.variables.get(type);
+    if (!variableMap || !variableMap.has(normalizedOldName)) {
+      return;
+    }
+
+    // Update the variable name
+    const locations = variableMap.get(normalizedOldName);
+    variableMap.delete(normalizedOldName);
+    variableMap.set(normalizedNewName, locations || []);
+  }
+
+  clearVariablesForDocument(uri: vscode.Uri): void {
+    // Remove all variables associated with the document
+    this.documentVariables.delete(uri.toString());
+  }
+}
+
+const variableTracker = new VariableTracker();
+
+function getDocumentScriptType(document: vscode.TextDocument): string {
+  let languageSubId: string = '';
+  if (document.languageId !== 'xml') {
+    return languageSubId; // Only process XML files
+  }
+
+  // Check if the languageSubId is already stored
+  const cachedLanguageSubId = documentLanguageSubIdMap.get(document.uri.toString());
+  if (cachedLanguageSubId) {
+    languageSubId = cachedLanguageSubId;
+    if (exceedinglyVerbose) {
+      console.log(`Using cached languageSubId: ${cachedLanguageSubId} for document: ${document.uri.toString()}`);
+    }
+    return languageSubId; // If cached, no need to re-validate
+  }
+
+  const text = document.getText();
+  const parser = sax.parser(true); // Use strict mode for validation
+
+  parser.onopentag = (node) => {
+    // Check if the root element is <aiscript> or <mdscript>
+    if (node.name === 'aiscript' || node.name === 'mdscript') {
+      languageSubId = node.name; // Store the root node name as the languageSubId
+      parser.close(); // Stop parsing as soon as the root element is identified
+    }
+  };
+
+  try {
+    parser.write(text).close();
+  } catch {
+    // Will not react, as we have only one possibility to get a true
+  }
+
+  if (languageSubId) {
+    // Cache the languageSubId for future use
+    documentLanguageSubIdMap.set(document.uri.toString(), languageSubId);
+    if (exceedinglyVerbose) {
+      console.log(`Cached languageSubId: ${languageSubId} for document: ${document.uri.toString()}`);
+    }
+    return languageSubId;
+  }
+
+  return languageSubId;
+}
+
+function trackVariablesInDocument(document: vscode.TextDocument): void {
+  const scriptType = getDocumentScriptType(document);
+  if (scriptType == '') {
+    return; // Skip processing if the document is not valid
+  }
+
+  // Clear existing variable locations for this document
+  variableTracker.clearVariablesForDocument(document.uri);
+
+  const text = document.getText();
+  const parser = sax.parser(true); // Create a SAX parser with strict mode enabled
+  const tagStack: string[] = []; // Stack to track open tags
+
+  let currentElementStartIndex: number | null = null;
+
+  parser.onopentag = (node) => {
+    tagStack.push(node.name); // Push the current tag onto the stack
+    currentElementStartIndex = parser.startTagPosition - 1; // Start position of the element in the text
+
+    // Check for variables in attributes
+    for (const [attrName, attrValue] of Object.entries(node.attributes)) {
+      let match: RegExpExecArray | null;
+      let tableIsFound = false;
+      if (typeof attrValue === 'string') {
+        const attrStartIndex = text.indexOf(attrValue, currentElementStartIndex || 0);
+        if (node.name === 'param' && tagStack[tagStack.length - 2] === 'params' && attrName === 'name') {
+          // Ensure <param> is a subnode of <params>
+          const variableName = attrValue;
+
+          const start = document.positionAt(attrStartIndex);
+          const end = document.positionAt(attrStartIndex + variableName.length);
+
+          variableTracker.addVariable('normal', variableName, scriptType, document.uri, new vscode.Range(start, end));
+        } else {
+          tableIsFound = tableKeyPattern.test(attrValue);
+          while (typeof attrValue === 'string' && (match = variablePattern.exec(attrValue)) !== null) {
+            const variableName = match[1];
+            const variableStartIndex = attrStartIndex + match.index;
+
+            // Check the character preceding the '$' to ensure it's valid
+            if (
+              variableStartIndex == 0 ||
+              (tableIsFound == false &&
+                [',', '"', '[', '{', '@', ' ', '.'].includes(text.charAt(variableStartIndex - 1))) ||
+              (tableIsFound == true && [',', ' ', '['].includes(text.charAt(variableStartIndex - 1)))
+            ) {
+              const start = document.positionAt(variableStartIndex);
+              const end = document.positionAt(variableStartIndex + match[0].length);
+              let equalIsPreceding = false;
+              if (tableIsFound) {
+                const equalsPattern = /=[^\%,]*$/;
+                const precedingText = text.substring(attrStartIndex, variableStartIndex);
+                equalIsPreceding = equalsPattern.test(precedingText);
+              }
+              if (
+                variableStartIndex == 0 ||
+                (text.charAt(variableStartIndex - 1) !== '.' && (tableIsFound == false || equalIsPreceding == true))
+              ) {
+                variableTracker.addVariable(
+                  'normal',
+                  variableName,
+                  scriptType,
+                  document.uri,
+                  new vscode.Range(start, end)
+                );
+              } else {
+                variableTracker.addVariable(
+                  'tableKey',
+                  variableName,
+                  scriptType,
+                  document.uri,
+                  new vscode.Range(start, end)
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+
+  parser.onclosetag = () => {
+    tagStack.pop(); // Pop the current tag from the stack
+    currentElementStartIndex = null;
+  };
+
+  parser.onerror = (err) => {
+    console.error(`Error parsing XML document: ${err.message}`);
+    parser.resume(); // Continue parsing despite the error
+  };
+
+  parser.write(text).close();
 }
 
 let completionProvider = new CompletionDict();
@@ -579,8 +846,9 @@ function findLanguageText(pageId: string, textId: string): string {
         const fileName = path.basename(filePath);
         let fileNumber: string;
 
-        console.log(`Processing filename: ${fileName}`);
-
+        if (exceedinglyVerbose) {
+          console.log(`Processing filename: ${fileName}`);
+        }
         if (fileName === '0001.xml') {
           fileNumber = '*'; // Special case for 0001.xml
         } else {
@@ -601,8 +869,9 @@ function findLanguageText(pageId: string, textId: string): string {
           }
         }
 
-        console.log(`Extracted fileNumber: ${fileNumber} from ${fileName}`);
-
+        if (exceedinglyVerbose) {
+          console.log(`Extracted fileNumber: ${fileNumber} from ${fileName}`);
+        }
         if (!limitLanguage || fileNumber == '*' || fileNumber == preferredLanguageNumber) {
           allMatches.push({
             fileNumber,
@@ -882,6 +1151,10 @@ export function activate(context: vscode.ExtensionContext) {
         document: vscode.TextDocument,
         position: vscode.Position
       ): Promise<vscode.Hover | undefined> => {
+        if (getDocumentScriptType(document) == '') {
+          return undefined; // Skip if the document is not valid
+        }
+
         const tPattern =
           /\{\s*(\d+)\s*,\s*(\d+)\s*\}|readtext\.\{\s*(\d+)\s*\}\.\{\s*(\d+)\s*\}|page="(\d+)"\s+line="(\d+)"/g;
         // matches:
@@ -929,6 +1202,20 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
 
+
+        const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
+        if (variableAtPosition !== null) {
+          if (exceedinglyVerbose) {
+            console.log(`Hovering over variable: ${variableAtPosition.name}`);
+          }
+          // Generate hover text for the variable
+          const hoverText = new vscode.MarkdownString();
+          hoverText.appendMarkdown(
+            `${scriptTypes[variableAtPosition.scriptType] || 'Script'} ${variableTypes[variableAtPosition.type] || 'Variable'}: \`${variableAtPosition.name}\`\n\n`
+          );
+          return new vscode.Hover(hoverText, variableAtPosition.location.range); // Updated to use variableAtPosition[0].range
+        }
+
         const hoverWord = document.getText(document.getWordRangeAtPosition(position));
         const phraseRegex = /([.]*[$@]*[a-zA-Z0-9_-{}])+/g;
         const phrase = document.getText(document.getWordRangeAtPosition(position, phraseRegex));
@@ -967,7 +1254,120 @@ export function activate(context: vscode.ExtensionContext) {
       },
     })
   );
+
+  definitionProvider.provideDefinition = (document: vscode.TextDocument, position: vscode.Position) => {
+    const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
+    if (variableAtPosition !== null) {
+      if (exceedinglyVerbose) {
+        console.log(`Definition found for variable: ${variableAtPosition.name}`);
+        console.log(`Locations:`, variableAtPosition.locations);
+      }
+      return variableAtPosition.locations.length > 0 ? variableAtPosition.locations[0] : undefined; // Return the first location or undefined
+    }
+    return undefined;
+  };
+
+  context.subscriptions.push(
+    vscode.languages.registerReferenceProvider(sel, {
+      provideReferences(document: vscode.TextDocument, position: vscode.Position, context: vscode.ReferenceContext) {
+        if (getDocumentScriptType(document) == '') {
+          return undefined; // Skip if the document is not valid
+        }
+        const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
+        if (variableAtPosition !== null) {
+          if (exceedinglyVerbose) {
+            console.log(`References found for variable: ${variableAtPosition.name}`);
+            console.log(`Locations:`, variableAtPosition.locations);
+          }
+          return variableAtPosition.locations.length > 0 ? variableAtPosition.locations : []; // Return all locations or an empty array
+        }
+        return [];
+      },
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerRenameProvider(sel, {
+      provideRenameEdits(document: vscode.TextDocument, position: vscode.Position, newName: string) {
+        if (getDocumentScriptType(document) == '') {
+          return undefined; // Skip if the document is not valid
+        }
+        const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
+        if (variableAtPosition !== null) {
+          const variableName = variableAtPosition.name;
+          const variableType = variableAtPosition.type;
+          const locations = variableAtPosition.locations;
+
+          if (exceedinglyVerbose) {
+            // Debug log: Print old name, new name, and locations
+            console.log(`Renaming variable: ${variableName} -> ${newName}`); // Updated to use variableAtPosition[0]
+            console.log(`Variable type: ${variableType}`);
+            console.log(`Locations to update:`, locations);
+          }
+          const workspaceEdit = new vscode.WorkspaceEdit();
+          locations.forEach((location) => {
+            // Debug log: Print each edit
+            const rangeText = location.range ? document.getText(location.range) : '';
+            const replacementText = rangeText.startsWith('$') ? `$${newName}` : newName;
+            if (exceedinglyVerbose) {
+              console.log(
+                `Editing file: ${location.uri.fsPath}, Range: ${location.range}, Old Text: ${rangeText}, New Text: ${replacementText}`
+              );
+            }
+            workspaceEdit.replace(location.uri, location.range, replacementText);
+          });
+
+          // Update the tracker with the new name
+          variableTracker.updateVariableName(variableType, variableName, newName, document);
+
+          return workspaceEdit;
+        }
+
+        // Debug log: No variable name found
+        if (exceedinglyVerbose) {
+          console.log(`No variable name found at position: ${position}`);
+        }
+        return undefined;
+      },
+    })
+  );
+
+  // Track variables in open documents
+  vscode.workspace.onDidOpenTextDocument((document) => {
+    if (getDocumentScriptType(document)) {
+      trackVariablesInDocument(document);
+    }
+  });
+
+  // Refresh variable locations when a document is edited
+  vscode.workspace.onDidChangeTextDocument((event) => {
+    if (getDocumentScriptType(event.document)) {
+      trackVariablesInDocument(event.document);
+    }
+  });
+
+  vscode.workspace.onDidSaveTextDocument((document) => {
+    if (getDocumentScriptType(document)) {
+      trackVariablesInDocument(document);
+    }
+  });
+
+  // Clear the cached languageSubId when a document is closed
+  vscode.workspace.onDidCloseTextDocument((document) => {
+    documentLanguageSubIdMap.delete(document.uri.toString());
+    if (exceedinglyVerbose) {
+      console.log(`Removed cached languageSubId for document: ${document.uri.toString()}`);
+    }
+  });
+  // Track variables in all currently open documents
+  vscode.workspace.textDocuments.forEach((document) => {
+    if (getDocumentScriptType(document)) {
+      trackVariablesInDocument(document);
+    }
+  });
 }
 
 // this method is called when your extension is deactivated
-export function deactivate() {}
+export function deactivate() {
+  console.log('Deactivated');
+}
