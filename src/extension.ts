@@ -4,6 +4,9 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as xml2js from 'xml2js';
 import * as path from 'path';
+import * as https from 'https'; // Import the built-in https module
+import { JSDOM } from 'jsdom'; // Import jsdom
+import TurndownService from 'turndown'; // Import TurndownService
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -12,6 +15,10 @@ var limitLanguage: boolean = false;
 var rootpath: string;
 var extensionsFolder: string;
 let languageFiles: Map<string, any> = new Map();
+let luaFunctionInfo: Map<string, string> = new Map();
+
+// Initialize TurndownService
+const turndownService = new TurndownService();
 
 // Add settings validation function
 function validateSettings(config: vscode.WorkspaceConfiguration): boolean {
@@ -180,6 +187,134 @@ function findLanguageText(pageId: string, textId: string): string {
   return allMatches.length > 0 ? allMatches.map((match) => match.text).join('\n\n') : '';
 }
 
+// Key for storing parsed data in globalState
+const LUA_FUNCTION_INFO_KEY = 'luaFunctionInfo';
+
+// Save parsed data to globalState
+function saveParsedDataToGlobalState(context: vscode.ExtensionContext) {
+  try {
+    const data = Array.from(luaFunctionInfo.entries());
+    context.globalState.update(LUA_FUNCTION_INFO_KEY, data);
+    console.log('Parsed data saved to globalState successfully.');
+  } catch (error) {
+    console.error(`Failed to save parsed data to globalState: ${error.message}`);
+  }
+}
+
+// Load parsed data from globalState
+function loadParsedDataFromGlobalState(context: vscode.ExtensionContext) {
+  try {
+    const data = context.globalState.get<[string, string][]>(LUA_FUNCTION_INFO_KEY);
+    if (data) {
+      luaFunctionInfo = new Map(data);
+      console.log('Parsed data loaded from globalState successfully.');
+    } else {
+      console.log('No saved parsed data found in globalState. Fetching new data...');
+    }
+  } catch (error) {
+    console.error(`Failed to load parsed data from globalState: ${error.message}`);
+  }
+}
+
+// Fetch and parse non-standard Lua function information
+async function fetchLuaFunctionInfo(context: vscode.ExtensionContext, forceRefresh: boolean = false) {
+  if (!forceRefresh) {
+    loadParsedDataFromGlobalState(context);
+    if (luaFunctionInfo.size > 0) {
+      return; // Use cached data if available
+    }
+  }
+
+  const url =
+    'https://wiki.egosoft.com:1337/X%20Rebirth%20Wiki/Modding%20support/UI%20Modding%20support/Lua%20function%20overview/';
+  try {
+    https
+      .get(url, (res) => {
+        let data = '';
+
+        // Collect data chunks
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+
+        // Process the complete response
+        res.on('end', () => {
+          const dom = new JSDOM(data);
+          const document = dom.window.document;
+
+          // Locate the table using a CSS selector
+          const table = document.querySelector('#xwikicontent > table');
+
+          if (!table) {
+            console.log('Table not found in the HTML document.');
+            return;
+          }
+
+          // Traverse the table rows
+          const rows = table.querySelectorAll('tbody > tr');
+          rows.forEach((row) => {
+            const cells = row.querySelectorAll('td');
+
+            if (cells.length >= 2) {
+              const versionInfo = turndownService.turndown(cells[0].innerHTML).replace(/\*\*/g, '').trim();
+              const deprecated = versionInfo.toLowerCase().includes('deprecated');
+              const functionInfo = turndownService
+                .turndown(cells[1].innerHTML)
+                .replace(/\*\*/g, '')
+                .replace(/deprecated/gi, '')
+                .trim();
+              const notes =
+                cells.length > 2 ? turndownService.turndown(cells[2].innerHTML).replace(/\*\*/g, '').trim() : '';
+
+              // Process only the first line of functionInfo
+              const firstLine = functionInfo.split('\n')[0].trim();
+
+              // Updated regex to handle complex return types and parameters
+              const functionMatch = firstLine.match(
+                /^(?:(.+?)\s*=\s*)?(\w+)\s*\((.*?)\)|^(.+?)\s+(\w+)\s*\((.*?)\)|^(.+?)$/
+              );
+              if (functionMatch) {
+                const returnData = functionMatch[1] || functionMatch[4] || 'void';
+                const functionName = functionMatch[2] || functionMatch[5] || functionMatch[7];
+                const parameters =
+                  functionMatch[3] || functionMatch[6]
+                    ? (functionMatch[3] || functionMatch[6]).split(',').map((p) => p.trim())
+                    : [];
+
+                // Build a structured description
+                let description = firstLine.replace(functionName, `\`${functionName}\``);
+                if (deprecated) {
+                  description = `**Deprecated** ${description}`;
+                }
+                const otherLines = functionInfo.split('\n').slice(1).join('\n');
+                if (otherLines) {
+                  description += `\n***\n${otherLines}`;
+                }
+                if (notes) {
+                  description += `\n***\nNotes: \n\n${notes}`;
+                }
+                if (versionInfo) {
+                  description += `\n***\nVersion Info:\n\n${versionInfo}`;
+                }
+                luaFunctionInfo.set(functionName, description);
+              } else {
+                console.log(`Failed to parse function info: ${firstLine}`);
+              }
+            }
+          });
+
+          console.log(`Fetched ${luaFunctionInfo.size} Lua functions from the website.`);
+          saveParsedDataToGlobalState(context); // Save the parsed data
+        });
+      })
+      .on('error', (err) => {
+        console.error(`Failed to fetch Lua function information: ${err.message}`);
+      });
+  } catch (error) {
+    console.error(`Unexpected error while fetching Lua function information: ${error}`);
+  }
+}
+
 export function activate(context: vscode.ExtensionContext) {
   let config = vscode.workspace.getConfiguration('x4CodeComplete-lua');
   if (!config || !validateSettings(config)) {
@@ -192,6 +327,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Load language files
   loadLanguageFiles(rootpath, extensionsFolder);
+
+  // Fetch Lua function information on activation
+  fetchLuaFunctionInfo(context);
 
   let sel: vscode.DocumentSelector = { language: 'lua' };
 
@@ -242,9 +380,22 @@ export function activate(context: vscode.ExtensionContext) {
                 return new vscode.Hover(hoverText, range);
               }
             }
-            return undefined;
           }
         }
+
+        // Check for non-standard Lua functions
+        const wordRange = document.getWordRangeAtPosition(position, /\b\w+\b/);
+        if (wordRange) {
+          const word = document.getText(wordRange);
+          if (luaFunctionInfo.has(word)) {
+            const description = luaFunctionInfo.get(word);
+            const hoverText = new vscode.MarkdownString();
+            hoverText.appendMarkdown(description);
+            return new vscode.Hover(hoverText, wordRange);
+          }
+        }
+
+        return undefined;
       },
     })
   );
