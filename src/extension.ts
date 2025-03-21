@@ -407,8 +407,7 @@ function isValidXmlDocument(document: vscode.TextDocument): boolean {
   try {
     parser.write(text).close();
   } catch {
-    // Parsing failed, return false
-    return false;
+    // Will not react, as we have only one possibility to get a true
   }
 
   if (languageSubId) {
