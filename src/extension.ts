@@ -17,6 +17,9 @@ var scriptPropertiesPath: string;
 var extensionsFolder: string;
 let languageFiles: Map<string, any> = new Map();
 
+// Map to store languageSubId for each document
+const documentLanguageSubIdMap: Map<string, string> = new Map();
+
 // Add settings validation function
 function validateSettings(config: vscode.WorkspaceConfiguration): boolean {
   const requiredSettings = ['unpackedFileLocation', 'extensionsFolder'];
@@ -380,25 +383,44 @@ function isValidXmlDocument(document: vscode.TextDocument): boolean {
     return false; // Only process XML files
   }
 
+  // Check if the languageSubId is already stored
+  const cachedLanguageSubId = documentLanguageSubIdMap.get(document.uri.toString());
+  if (cachedLanguageSubId) {
+    if (exceedinglyVerbose) {
+      console.log(`Using cached languageSubId: ${cachedLanguageSubId} for document: ${document.uri.toString()}`);
+    }
+    return true; // If cached, no need to re-validate
+  }
+
   const text = document.getText();
-  const parser = sax.parser(true); // Use non-strict mode for lightweight validation
-  let isValid = false;
+  const parser = sax.parser(true); // Use strict mode for validation
+  let languageSubId: string | null = null;
 
   parser.onopentag = (node) => {
     // Check if the root element is <aiscript> or <mdscript>
     if (node.name === 'aiscript' || node.name === 'mdscript') {
-      isValid = true;
+      languageSubId = node.name; // Store the root node name as the languageSubId
+      parser.close(); // Stop parsing as soon as the root element is identified
     }
-    parser.close(); // Stop parsing as soon as the root element is identified
   };
 
   try {
     parser.write(text).close();
   } catch {
-    // Will not react, as we have only one possibility to get a true
+    // Parsing failed, return false
+    return false;
   }
 
-  return isValid;
+  if (languageSubId) {
+    // Cache the languageSubId for future use
+    documentLanguageSubIdMap.set(document.uri.toString(), languageSubId);
+    if (exceedinglyVerbose) {
+      console.log(`Cached languageSubId: ${languageSubId} for document: ${document.uri.toString()}`);
+    }
+    return true;
+  }
+
+  return false;
 }
 
 function trackVariablesInDocument(document: vscode.TextDocument): void {
@@ -476,6 +498,14 @@ vscode.workspace.onDidOpenTextDocument(trackVariablesInDocument);
 
 // Refresh variable locations when a document is edited
 vscode.workspace.onDidChangeTextDocument((event) => trackVariablesInDocument(event.document));
+
+// Clear the cached languageSubId when a document is closed
+vscode.workspace.onDidCloseTextDocument((document) => {
+  documentLanguageSubIdMap.delete(document.uri.toString());
+  if (exceedinglyVerbose) {
+    console.log(`Removed cached languageSubId for document: ${document.uri.toString()}`);
+  }
+});
 
 let completionProvider = new CompletionDict();
 let definitionProvider = new LocationDict();
