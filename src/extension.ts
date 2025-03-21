@@ -213,6 +213,9 @@ class CompletionDict implements vscode.CompletionItemProvider {
   }
 
   provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
+    if (!isValidXmlDocument(document)) {
+      return undefined; // Skip hover if the document is not valid
+    }
     let items = new Map<string, vscode.CompletionItem>();
     let prefix = document.lineAt(position).text.substring(0, position.character);
     let interesting = findRelevantPortion(prefix);
@@ -334,6 +337,9 @@ class LocationDict implements vscode.DefinitionProvider {
   }
 
   provideDefinition(document: vscode.TextDocument, position: vscode.Position) {
+    if (!isValidXmlDocument(document)) {
+      return undefined; // Skip hover if the document is not valid
+    }
     let line = document.lineAt(position).text;
     let start = line.lastIndexOf('"', position.character);
     let end = line.indexOf('"', position.character);
@@ -1228,6 +1234,9 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerReferenceProvider(sel, {
       provideReferences(document: vscode.TextDocument, position: vscode.Position, context: vscode.ReferenceContext) {
+        if (!isValidXmlDocument(document)) {
+          return undefined; // Skip hover if the document is not valid
+        }
         const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
         if (variableAtPosition.length === 4) {
           const locations = variableAtPosition[3];
@@ -1245,6 +1254,9 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerRenameProvider(sel, {
       provideRenameEdits(document: vscode.TextDocument, position: vscode.Position, newName: string) {
+        if (!isValidXmlDocument(document)) {
+          return undefined; // Skip hover if the document is not valid
+        }
         const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
         if (variableAtPosition.length === 4) {
           const variableName = variableAtPosition[0];
