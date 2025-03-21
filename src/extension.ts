@@ -17,6 +17,7 @@ var extensionsFolder: string;
 let languageFiles: Map<string, any> = new Map();
 let luaFunctionInfo: Map<string, string> = new Map();
 let luaTypeDefinitions: Map<string, string> = new Map(); // Store type definitions
+let LuaFunctionCompletionItems: vscode.CompletionItem[] = [];
 
 // Initialize TurndownService
 const turndownService = new TurndownService();
@@ -472,6 +473,13 @@ export function activate(context: vscode.ExtensionContext) {
     loadLuaDefinitions(rootpath);
   });
 
+  luaFunctionInfo.forEach((description, functionName) => {
+    const item = new vscode.CompletionItem(functionName, vscode.CompletionItemKind.Function);
+    item.detail = 'EGOSOFT Lua Function';
+    item.documentation = new vscode.MarkdownString(description);
+    LuaFunctionCompletionItems.push(item);
+  });
+
   let sel: vscode.DocumentSelector = { language: 'lua' };
 
   // Hover provider to display tooltips
@@ -547,17 +555,7 @@ export function activate(context: vscode.ExtensionContext) {
       { language: 'lua' },
       {
         provideCompletionItems(document: vscode.TextDocument, position: vscode.Position): vscode.CompletionItem[] {
-          const completionItems: vscode.CompletionItem[] = [];
-
-          // Iterate over the Lua function info map and create completion items
-          luaFunctionInfo.forEach((description, functionName) => {
-            const item = new vscode.CompletionItem(functionName, vscode.CompletionItemKind.Function);
-            item.detail = 'EGOSOFT Lua Function';
-            item.documentation = new vscode.MarkdownString(description);
-            completionItems.push(item);
-          });
-
-          return completionItems;
+          return LuaFunctionCompletionItems;
         },
       }
     )
