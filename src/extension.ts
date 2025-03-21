@@ -562,6 +562,7 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
 
   parser.onerror = (err) => {
     console.error(`Error parsing XML document: ${err.message}`);
+    parser.resume(); // Continue parsing despite the error
   };
 
   parser.write(text).close();
