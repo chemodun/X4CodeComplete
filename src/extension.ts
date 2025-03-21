@@ -381,12 +381,12 @@ function isValidXmlDocument(document: vscode.TextDocument): boolean {
   }
 
   const text = document.getText();
-  const parser = sax.parser(false); // Use non-strict mode for lightweight validation
+  const parser = sax.parser(true); // Use non-strict mode for lightweight validation
   let isValid = false;
 
   parser.onopentag = (node) => {
     // Check if the root element is <aiscript> or <mdscript>
-    if (node.name.toLowerCase() === 'aiscript' || node.name.toLowerCase() === 'mdscript') {
+    if (node.name === 'aiscript' || node.name === 'mdscript') {
       isValid = true;
     }
     parser.close(); // Stop parsing as soon as the root element is identified
