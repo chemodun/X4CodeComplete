@@ -16,6 +16,7 @@ var rootpath: string;
 var extensionsFolder: string;
 let languageFiles: Map<string, any> = new Map();
 let luaFunctionInfo: Map<string, string> = new Map();
+let luaTypeDefinitions: Map<string, string> = new Map(); // Store type definitions
 
 // Initialize TurndownService
 const turndownService = new TurndownService();
@@ -233,9 +234,87 @@ function findLuaFilesRecursively(directory: string): string[] {
   return luaFiles;
 }
 
-// Load and parse Lua files for ffi.cdef function definitions
-function loadLuaFunctionDefinitions(basePath: string) {
-  console.log('Loading Lua Function Definitions from local Lua files');
+// Parse a single line or block from ffi.cdef as either a type definition or a function definition
+function parseFfiBlock(lines: string[]) {
+  let typedefBuffer: string[] = [];
+  const typeDefinitionStartPattern = /^typedef\s+(struct|enum|union)\s*\{\s*$/;
+  const typeDefinitionEndPattern = /^\}\s+(\w+);$/;
+  const typeDefinitionPattern = /^typedef\s+(struct|enum|union|\w+)(\s+\{.*\}|\s+)\s*(\w+);$/;
+  const functionDefinitionPattern = /^(?:([\w\s\*]+)\s+)?(\w+)\s*\((.*?)\);$/;
+
+  lines.forEach((line) => {
+    if (typedefBuffer.length > 0 || typeDefinitionStartPattern.test(line) || typeDefinitionPattern.test(line)) {
+      // Handle multi-line typedef
+      if (typedefBuffer.length > 0 || typeDefinitionStartPattern.test(line)) {
+        typedefBuffer.push(line);
+      }
+      if (typeDefinitionEndPattern.test(line) || typeDefinitionPattern.test(line)) {
+        let typedefContent = line;
+        if (typedefBuffer.length > 0) {
+          typedefContent = typedefBuffer.join(' ');
+        }
+        const typeNameMatch = typedefContent.match(typeDefinitionPattern);
+        if (typeNameMatch) {
+          const typeName = typeNameMatch[3];
+          const typeDescription = typedefContent.replace(typeName, `\`${typeName}\``);
+          luaTypeDefinitions.set(typeName, typeDescription);
+        }
+        typedefBuffer = []; // Clear buffer after processing
+      }
+      return;
+    }
+
+    // Handle function definitions
+    const functionMatch = line.match(functionDefinitionPattern);
+    if (functionMatch) {
+      const returnType = functionMatch[1]?.trim() || 'void';
+      const functionName = functionMatch[2];
+      const functionNameWithPrefix = `C.${functionName}`;
+      const parameters = functionMatch[3];
+      const parameterPairs = parameters.split(',');
+      const parametersFormatted = parameterPairs
+        .map((param) => param.replace(param.trim().split(/\s+/)[1], `\`${param.trim().split(/\s+/)[1]}\``))
+        .join(', ');
+      let description = `${returnType} \`${functionNameWithPrefix}\`(${parametersFormatted})\n`;
+
+      // Add type descriptions for return type
+      if (luaTypeDefinitions.has(returnType)) {
+        description += `\n***\n${luaTypeDefinitions.get(returnType)}`;
+      }
+
+      // Add type descriptions for parameters
+      const paramTypes = parameterPairs.map((param) => param.trim().split(/\s+/)[0]);
+      let firstParam = true;
+      paramTypes.forEach((paramType) => {
+        if (paramType === 'void') {
+          return;
+        } else if (paramType.endsWith('*')) {
+          paramType = paramType.slice(0, -1); // Remove trailing '*'
+        }
+        if (luaTypeDefinitions.has(paramType)) {
+          if (firstParam) {
+            description += '\n';
+            firstParam = false;
+          }
+          description += `- ${luaTypeDefinitions.get(paramType)}\n`;
+        }
+      });
+
+      if (luaFunctionInfo.has(functionName)) {
+        // Merge descriptions if duplicate
+        const existingDescription = luaFunctionInfo.get(functionName);
+        luaFunctionInfo.delete(functionName);
+        luaFunctionInfo.set(functionNameWithPrefix, `${description}\n\n${existingDescription}`);
+      } else if (!luaFunctionInfo.has(functionNameWithPrefix)) {
+        luaFunctionInfo.set(functionNameWithPrefix, description);
+      }
+    }
+  });
+}
+
+// Load and parse Lua files for ffi.cdef type and function definitions in a single pass
+function loadLuaDefinitions(basePath: string) {
+  console.log('Loading Lua Definitions (types and functions) from local Lua files');
   const uiFolderPath = path.join(basePath, 'ui');
   if (!fs.existsSync(uiFolderPath) || !fs.statSync(uiFolderPath).isDirectory()) {
     console.warn(`UI folder not found at path: ${uiFolderPath}`);
@@ -250,36 +329,22 @@ function loadLuaFunctionDefinitions(basePath: string) {
         /local\s+ffi\s*=\s*require\("ffi"\)\s*local\s+C\s*=\s*ffi\.C\s*ffi\.cdef\[\[([\s\S]*?)\]\]/
       );
       if (ffiMatch && ffiMatch[1]) {
-        const functionDefinitions = ffiMatch[1]
+        const ffiBlock = ffiMatch[1];
+        const lines = ffiBlock
           .split('\n')
           .map((line) => line.trim())
           .filter((line) => line);
-        functionDefinitions.forEach((definition) => {
-          const functionMatch = definition.match(/^(?:([\w\s\*]+)\s+)?(\w+)\s*\((.*?)\);$/);
-          if (functionMatch) {
-            const returnType = functionMatch[1]?.trim() || 'void';
-            const functionName = functionMatch[2];
-            const functionNameWithPrefix = `C.${functionName}`;
-            const parameters = functionMatch[3];
-            const description = `${returnType} \`${functionNameWithPrefix}\`(${parameters})\n`;
 
-            if (luaFunctionInfo.has(functionName)) {
-              // Merge descriptions if duplicate
-              const existingDescription = luaFunctionInfo.get(functionName);
-              luaFunctionInfo.delete(functionName);
-              luaFunctionInfo.set(functionNameWithPrefix, `${description}\n\n${existingDescription}`);
-            } else if (!luaFunctionInfo.has(functionNameWithPrefix)) {
-              luaFunctionInfo.set(functionNameWithPrefix, description);
-            }
-          }
-        });
+        parseFfiBlock(lines);
       }
     } catch (error) {
       console.error(`Error reading or parsing Lua file: ${filePath}, Error: ${error.message}`);
     }
   });
 
-  console.log(`Loaded ${luaFunctionInfo.size - previousLuaFunctionCount} Lua functions from local Lua files.`);
+  console.log(
+    `Loaded ${luaFunctionInfo.size - previousLuaFunctionCount} Lua functions and ${luaTypeDefinitions.size} type definitions.`
+  );
 }
 
 // Fetch and parse non-standard Lua function information
@@ -403,8 +468,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Fetch Lua function information on activation
   fetchLuaFunctionInfo(context).then(() => {
-    // Load Lua function definitions after fetching
-    loadLuaFunctionDefinitions(rootpath);
+    // Load Lua definitions (types and functions) after fetching
+    loadLuaDefinitions(rootpath);
   });
 
   let sel: vscode.DocumentSelector = { language: 'lua' };
