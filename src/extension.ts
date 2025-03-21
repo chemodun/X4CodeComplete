@@ -1202,6 +1202,7 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
 
+
         const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
         if (variableAtPosition !== null) {
           if (exceedinglyVerbose) {
