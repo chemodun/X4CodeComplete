@@ -1075,25 +1075,19 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
 
-        const variablePattern = /(\$[a-zA-Z_][a-zA-Z0-9_]*)|<param\s+name="([a-zA-Z_][a-zA-Z0-9_]*)"/g;
-        const rangeVariable = document.getWordRangeAtPosition(position, variablePattern);
+        for (const [variableName, locations] of variableTracker.variableLocations.entries()) {
+          for (const location of locations) {
+            if (location.range.contains(position)) {
+              if (exceedinglyVerbose) {
+                console.log(`Hovering over variable: ${variableName}`);
+              }
 
-        if (rangeVariable) {
-          const text = document.getText(rangeVariable);
-          const matches = variablePattern.exec(text);
-          variablePattern.lastIndex = 0; // Reset regex state
-
-          if (matches) {
-            let variableName = matches[1]?.startsWith('$') ? matches[1] : matches[2];
-            if (exceedinglyVerbose) {
-              console.log(`Matched variable: ${variableName}`);
+              // Generate hover text for the variable
+              const hoverText = new vscode.MarkdownString();
+              hoverText.appendMarkdown(`**Variable:** \`${variableName}\`\n\n`);
+              hoverText.appendMarkdown(`This variable is defined as \`${variableName}\`.\n`);
+              return new vscode.Hover(hoverText, location.range);
             }
-
-            // Generate hover text for the variable
-            const hoverText = new vscode.MarkdownString();
-            hoverText.appendMarkdown(`**Variable:** \`${variableName}\`\n\n`);
-            hoverText.appendMarkdown(`This variable is defined as \`${variableName}\`.\n`);
-            return new vscode.Hover(hoverText, rangeVariable);
           }
         }
 
