@@ -355,21 +355,10 @@ class VariableTracker {
   }
 
   getVariableLocations(name: string, document: vscode.TextDocument): vscode.Location[] {
-    // Normalize the variable name (strip '$' for comparison)
     const normalizedName = name.startsWith('$') ? name.substring(1) : name;
 
-    // Filter locations based on the normalized name and usage context
-    return (this.variableLocations.get(normalizedName) || []).filter((location) => {
-      const lineText = document.lineAt(location.range.start.line).text;
-
-      // Exclude variables with a '.' before the '$'
-      if (lineText.charAt(location.range.start.character - 1) === '.') {
-        return false;
-      }
-
-      // Include variables matching either $something or <param name="something" ...>
-      return lineText.includes(`$${normalizedName}`) || lineText.includes(`<param name="${normalizedName}"`);
-    });
+    // Directly retrieve the locations from the map
+    return this.variableLocations.get(normalizedName) || [];
   }
 
   updateVariableName(oldName: string, newName: string): void {
