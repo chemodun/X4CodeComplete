@@ -446,10 +446,14 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
         while (typeof attrValue === 'string' && (match = variablePattern.exec(attrValue)) !== null) {
           const variableName = match[1];
           const attrStartIndex = text.indexOf(attrValue, currentElementStartIndex || 0) + match.index;
-          const start = document.positionAt(attrStartIndex);
-          const end = document.positionAt(attrStartIndex + match[0].length);
 
-          variableTracker.addVariable(variableName, document.uri, new vscode.Range(start, end));
+          // Check the character preceding the '$' to ensure it's valid
+          if (attrStartIndex == 0 || [',', '"', '[', '{', '@', ' '].includes(text.charAt(attrStartIndex - 1))) {
+            const start = document.positionAt(attrStartIndex);
+            const end = document.positionAt(attrStartIndex + match[0].length);
+
+            variableTracker.addVariable(variableName, document.uri, new vscode.Range(start, end));
+          }
         }
       }
     }
