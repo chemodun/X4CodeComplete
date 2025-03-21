@@ -399,6 +399,28 @@ export function activate(context: vscode.ExtensionContext) {
       },
     })
   );
+
+  // Register completion provider for Lua
+  context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(
+      { language: 'lua' },
+      {
+        provideCompletionItems(document: vscode.TextDocument, position: vscode.Position): vscode.CompletionItem[] {
+          const completionItems: vscode.CompletionItem[] = [];
+
+          // Iterate over the Lua function info map and create completion items
+          luaFunctionInfo.forEach((description, functionName) => {
+            const item = new vscode.CompletionItem(functionName, vscode.CompletionItemKind.Function);
+            item.detail = 'EGOSOFT Lua Function';
+            item.documentation = new vscode.MarkdownString(description);
+            completionItems.push(item);
+          });
+
+          return completionItems;
+        },
+      }
+    )
+  );
 }
 
 // this method is called when your extension is deactivated
