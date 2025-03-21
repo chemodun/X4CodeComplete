@@ -509,38 +509,45 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
       let match: RegExpExecArray | null;
       let tableIsFound = false;
       const tableKeyPattern = /table\[/;
-
-      if (
-        node.name === 'param' &&
-        tagStack[tagStack.length - 2] === 'params' &&
-        attrName === 'name' &&
-        typeof attrValue === 'string'
-      ) {
-        // Ensure <param> is a subnode of <params>
-        const variableName = attrValue;
+      if (typeof attrValue === 'string') {
         const attrStartIndex = text.indexOf(attrValue, currentElementStartIndex || 0);
-        const start = document.positionAt(attrStartIndex);
-        const end = document.positionAt(attrStartIndex + variableName.length);
+        if (node.name === 'param' && tagStack[tagStack.length - 2] === 'params' && attrName === 'name') {
+          // Ensure <param> is a subnode of <params>
+          const variableName = attrValue;
 
-        variableTracker.addVariable('normal', variableName, document.uri, new vscode.Range(start, end));
-      } else if (typeof attrValue === 'string') {
-        tableIsFound = tableKeyPattern.exec(attrValue) !== null;
-        while (typeof attrValue === 'string' && (match = variablePattern.exec(attrValue)) !== null) {
-          const variableName = match[1];
-          const attrStartIndex = text.indexOf(attrValue, currentElementStartIndex || 0) + match.index;
+          const start = document.positionAt(attrStartIndex);
+          const end = document.positionAt(attrStartIndex + variableName.length);
 
-          // Check the character preceding the '$' to ensure it's valid
-          if (
-            attrStartIndex == 0 ||
-            (tableIsFound == false && [',', '"', '[', '{', '@', ' ', '.'].includes(text.charAt(attrStartIndex - 1))) ||
-            (tableIsFound == true && [',', ' ', '['].includes(text.charAt(attrStartIndex - 1)))
-          ) {
-            const start = document.positionAt(attrStartIndex);
-            const end = document.positionAt(attrStartIndex + match[0].length);
-            if (attrStartIndex == 0 || (text.charAt(attrStartIndex - 1) !== '.' && tableIsFound == false)) {
-              variableTracker.addVariable('normal', variableName, document.uri, new vscode.Range(start, end));
-            } else {
-              variableTracker.addVariable('tableKey', variableName, document.uri, new vscode.Range(start, end));
+          variableTracker.addVariable('normal', variableName, document.uri, new vscode.Range(start, end));
+        } else {
+          tableIsFound = tableKeyPattern.exec(attrValue) !== null;
+          while (typeof attrValue === 'string' && (match = variablePattern.exec(attrValue)) !== null) {
+            const variableName = match[1];
+            const variableStartIndex = attrStartIndex + match.index;
+
+            // Check the character preceding the '$' to ensure it's valid
+            if (
+              variableStartIndex == 0 ||
+              (tableIsFound == false &&
+                [',', '"', '[', '{', '@', ' ', '.'].includes(text.charAt(variableStartIndex - 1))) ||
+              (tableIsFound == true && [',', ' ', '['].includes(text.charAt(variableStartIndex - 1)))
+            ) {
+              const start = document.positionAt(variableStartIndex);
+              const end = document.positionAt(variableStartIndex + match[0].length);
+              let equalIsPreceding = false;
+              if (tableIsFound) {
+                const equalsPattern = /=[^\%,]*$/;
+                const precedingText = text.substring(attrStartIndex, variableStartIndex);
+                equalIsPreceding = equalsPattern.test(precedingText);
+              }
+              if (
+                variableStartIndex == 0 ||
+                (text.charAt(variableStartIndex - 1) !== '.' && (tableIsFound == false || equalIsPreceding == true))
+              ) {
+                variableTracker.addVariable('normal', variableName, document.uri, new vscode.Range(start, end));
+              } else {
+                variableTracker.addVariable('tableKey', variableName, document.uri, new vscode.Range(start, end));
+              }
             }
           }
         }
@@ -1287,6 +1294,12 @@ export function activate(context: vscode.ExtensionContext) {
   vscode.workspace.onDidChangeTextDocument((event) => {
     if (isValidXmlDocument(event.document)) {
       trackVariablesInDocument(event.document);
+    }
+  });
+
+  vscode.workspace.onDidSaveTextDocument((document) => {
+    if (isValidXmlDocument(document)) {
+      trackVariablesInDocument(document);
     }
   });
 
