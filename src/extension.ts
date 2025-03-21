@@ -21,6 +21,10 @@ let languageFiles: Map<string, any> = new Map();
 const documentLanguageSubIdMap: Map<string, string> = new Map();
 const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
 const tableKeyPattern = /table\[/;
+const variableTypes = {
+  normal: 'Variable',
+  tableKey: 'Remote Variable or Table Field',
+};
 
 // Add settings validation function
 function validateSettings(config: vscode.WorkspaceConfiguration): boolean {
@@ -214,7 +218,7 @@ class CompletionDict implements vscode.CompletionItemProvider {
 
   provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
     if (!isValidXmlDocument(document)) {
-      return undefined; // Skip hover if the document is not valid
+      return undefined; // Skip if the document is not valid
     }
     let items = new Map<string, vscode.CompletionItem>();
     let prefix = document.lineAt(position).text.substring(0, position.character);
@@ -338,7 +342,7 @@ class LocationDict implements vscode.DefinitionProvider {
 
   provideDefinition(document: vscode.TextDocument, position: vscode.Position) {
     if (!isValidXmlDocument(document)) {
-      return undefined; // Skip hover if the document is not valid
+      return undefined; // Skip if the document is not valid
     }
     let line = document.lineAt(position).text;
     let start = line.lastIndexOf('"', position.character);
@@ -1117,7 +1121,7 @@ export function activate(context: vscode.ExtensionContext) {
         position: vscode.Position
       ): Promise<vscode.Hover | undefined> => {
         if (!isValidXmlDocument(document)) {
-          return undefined; // Skip hover if the document is not valid
+          return undefined; // Skip if the document is not valid
         }
 
         const tPattern =
@@ -1174,8 +1178,9 @@ export function activate(context: vscode.ExtensionContext) {
           }
           // Generate hover text for the variable
           const hoverText = new vscode.MarkdownString();
-          hoverText.appendMarkdown(`**Variable:** \`${variableAtPosition[0]}\`\n\n`);
-          hoverText.appendMarkdown(`There is ${variableAtPosition[1]} variable \`${variableAtPosition[0]}\`.\n`); // Updated to use variableAtPosition[0]
+          hoverText.appendMarkdown(
+            `**${variableTypes[variableAtPosition[1]] || 'Variable'}:** \`${variableAtPosition[0]}\`\n\n`
+          );
           return new vscode.Hover(hoverText, variableAtPosition[2].range); // Updated to use variableAtPosition[0].range
         }
 
@@ -1235,7 +1240,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerReferenceProvider(sel, {
       provideReferences(document: vscode.TextDocument, position: vscode.Position, context: vscode.ReferenceContext) {
         if (!isValidXmlDocument(document)) {
-          return undefined; // Skip hover if the document is not valid
+          return undefined; // Skip if the document is not valid
         }
         const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
         if (variableAtPosition.length === 4) {
@@ -1255,7 +1260,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerRenameProvider(sel, {
       provideRenameEdits(document: vscode.TextDocument, position: vscode.Position, newName: string) {
         if (!isValidXmlDocument(document)) {
-          return undefined; // Skip hover if the document is not valid
+          return undefined; // Skip if the document is not valid
         }
         const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
         if (variableAtPosition.length === 4) {
