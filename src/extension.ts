@@ -207,13 +207,79 @@ function loadParsedDataFromGlobalState(context: vscode.ExtensionContext) {
     const data = context.globalState.get<[string, string][]>(LUA_FUNCTION_INFO_KEY);
     if (data) {
       luaFunctionInfo = new Map(data);
-      console.log('Parsed data loaded from globalState successfully.');
+      console.log('Loaded %s Lua functions from globalState successfully.', luaFunctionInfo.size);
     } else {
-      console.log('No saved parsed data found in globalState. Fetching new data...');
+      console.log('No saved Lua functions found in globalState. Fetching new data...');
     }
   } catch (error) {
-    console.error(`Failed to load parsed data from globalState: ${error.message}`);
+    console.error(`Failed to load Lua functions from globalState: ${error.message}`);
   }
+}
+
+// Recursively find all .lua files in a directory
+function findLuaFilesRecursively(directory: string): string[] {
+  let luaFiles: string[] = [];
+  const entries = fs.readdirSync(directory, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      luaFiles = luaFiles.concat(findLuaFilesRecursively(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith('.lua')) {
+      luaFiles.push(fullPath);
+    }
+  }
+
+  return luaFiles;
+}
+
+// Load and parse Lua files for ffi.cdef function definitions
+function loadLuaFunctionDefinitions(basePath: string) {
+  console.log('Loading Lua Function Definitions from local Lua files');
+  const uiFolderPath = path.join(basePath, 'ui');
+  if (!fs.existsSync(uiFolderPath) || !fs.statSync(uiFolderPath).isDirectory()) {
+    console.warn(`UI folder not found at path: ${uiFolderPath}`);
+    return;
+  }
+  const previousLuaFunctionCount = luaFunctionInfo.size;
+  const luaFiles = findLuaFilesRecursively(uiFolderPath);
+  luaFiles.forEach((filePath) => {
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const ffiMatch = content.match(
+        /local\s+ffi\s*=\s*require\("ffi"\)\s*local\s+C\s*=\s*ffi\.C\s*ffi\.cdef\[\[([\s\S]*?)\]\]/
+      );
+      if (ffiMatch && ffiMatch[1]) {
+        const functionDefinitions = ffiMatch[1]
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line);
+        functionDefinitions.forEach((definition) => {
+          const functionMatch = definition.match(/^(?:([\w\s\*]+)\s+)?(\w+)\s*\((.*?)\);$/);
+          if (functionMatch) {
+            const returnType = functionMatch[1]?.trim() || 'void';
+            const functionName = functionMatch[2];
+            const functionNameWithPrefix = `C.${functionName}`;
+            const parameters = functionMatch[3];
+            const description = `${returnType} \`${functionNameWithPrefix}\`(${parameters})\n`;
+
+            if (luaFunctionInfo.has(functionName)) {
+              // Merge descriptions if duplicate
+              const existingDescription = luaFunctionInfo.get(functionName);
+              luaFunctionInfo.delete(functionName);
+              luaFunctionInfo.set(functionNameWithPrefix, `${description}\n\n${existingDescription}`);
+            } else if (!luaFunctionInfo.has(functionNameWithPrefix)) {
+              luaFunctionInfo.set(functionNameWithPrefix, description);
+            }
+          }
+        });
+      }
+    } catch (error) {
+      console.error(`Error reading or parsing Lua file: ${filePath}, Error: ${error.message}`);
+    }
+  });
+
+  console.log(`Loaded ${luaFunctionInfo.size - previousLuaFunctionCount} Lua functions from local Lua files.`);
 }
 
 // Fetch and parse non-standard Lua function information
@@ -296,7 +362,14 @@ async function fetchLuaFunctionInfo(context: vscode.ExtensionContext, forceRefre
                 if (versionInfo) {
                   description += `\n***\nVersion Info:\n\n${versionInfo}`;
                 }
-                luaFunctionInfo.set(functionName, description);
+
+                // Check for duplicates and merge descriptions
+                if (luaFunctionInfo.has(functionName)) {
+                  const existingDescription = luaFunctionInfo.get(functionName);
+                  luaFunctionInfo.set(functionName, `${existingDescription}\n\n${description}`);
+                } else {
+                  luaFunctionInfo.set(functionName, description);
+                }
               } else {
                 console.log(`Failed to parse function info: ${firstLine}`);
               }
@@ -329,7 +402,10 @@ export function activate(context: vscode.ExtensionContext) {
   loadLanguageFiles(rootpath, extensionsFolder);
 
   // Fetch Lua function information on activation
-  fetchLuaFunctionInfo(context);
+  fetchLuaFunctionInfo(context).then(() => {
+    // Load Lua function definitions after fetching
+    loadLuaFunctionDefinitions(rootpath);
+  });
 
   let sel: vscode.DocumentSelector = { language: 'lua' };
 
@@ -384,7 +460,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         // Check for non-standard Lua functions
-        const wordRange = document.getWordRangeAtPosition(position, /\b\w+\b/);
+        const wordRange = document.getWordRangeAtPosition(position, /\b(?:C\.)?\w+\b/);
         if (wordRange) {
           const word = document.getText(wordRange);
           if (luaFunctionInfo.has(word)) {
