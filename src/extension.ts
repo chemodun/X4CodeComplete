@@ -22,8 +22,12 @@ const documentLanguageSubIdMap: Map<string, string> = new Map();
 const variablePattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
 const tableKeyPattern = /table\[/;
 const variableTypes = {
-  normal: 'Variable',
-  tableKey: 'Remote Variable or Table Field',
+  normal: '_variable_',
+  tableKey: '_remote variable_ or _table field_',
+};
+const scriptTypes = {
+  aiscript: 'AI Script',
+  mdscript: 'Mission Director Script',
 };
 
 // Add settings validation function
@@ -217,7 +221,7 @@ class CompletionDict implements vscode.CompletionItemProvider {
   }
 
   provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
-    if (!isValidXmlDocument(document)) {
+    if (getDocumentScriptType(document) == '') {
       return undefined; // Skip if the document is not valid
     }
     let items = new Map<string, vscode.CompletionItem>();
@@ -341,7 +345,7 @@ class LocationDict implements vscode.DefinitionProvider {
   }
 
   provideDefinition(document: vscode.TextDocument, position: vscode.Position) {
-    if (!isValidXmlDocument(document)) {
+    if (getDocumentScriptType(document) == '') {
       return undefined; // Skip if the document is not valid
     }
     let line = document.lineAt(position).text;
@@ -360,16 +364,17 @@ class LocationDict implements vscode.DefinitionProvider {
 
 class VariableTracker {
   // Map to store variables per document and type: Map<DocumentURI, Map<VariableType, Map<VariableName, vscode.Location[]>>>
-  documentVariables: Map<string, Map<string, Map<string, vscode.Location[]>>> = new Map();
+  documentVariables: Map<string, { scriptType: string; variables: Map<string, Map<string, vscode.Location[]>> }> =
+    new Map();
 
-  addVariable(type: string, name: string, uri: vscode.Uri, range: vscode.Range): void {
+  addVariable(type: string, name: string, scriptType: string, uri: vscode.Uri, range: vscode.Range): void {
     const normalizedName = name.startsWith('$') ? name.substring(1) : name;
 
     // Get or create the variable type map for the document
     if (!this.documentVariables.has(uri.toString())) {
-      this.documentVariables.set(uri.toString(), new Map());
+      this.documentVariables.set(uri.toString(), { scriptType: scriptType, variables: new Map() });
     }
-    const typeMap = this.documentVariables.get(uri.toString())!;
+    const typeMap = this.documentVariables.get(uri.toString())!.variables;
 
     // Get or create the variable map for the type
     if (!typeMap.has(type)) {
@@ -388,13 +393,13 @@ class VariableTracker {
     const normalizedName = name.startsWith('$') ? name.substring(1) : name;
 
     // Retrieve the variable type map for the document
-    const typeMap = this.documentVariables.get(document.uri.toString());
-    if (!typeMap) {
+    const documentData = this.documentVariables.get(document.uri.toString());
+    if (!documentData) {
       return [];
     }
 
     // Retrieve the variable map for the type
-    const variableMap = typeMap.get(type);
+    const variableMap = documentData.variables.get(type);
     if (!variableMap) {
       return [];
     }
@@ -406,21 +411,33 @@ class VariableTracker {
   getVariableAtPosition(
     document: vscode.TextDocument,
     position: vscode.Position
-  ): [string, string, vscode.Location, vscode.Location[]] | [] {
+  ): {
+    name: string;
+    type: string;
+    location: vscode.Location;
+    locations: vscode.Location[];
+    scriptType: string;
+  } | null {
     // Retrieve the variable type map for the document
-    const typesMap = this.documentVariables.get(document.uri.toString());
-    if (!typesMap) {
-      return [];
+    const documentData = this.documentVariables.get(document.uri.toString());
+    if (!documentData) {
+      return null; // Change from [] to null
     }
-    for (const [variablesType, variablesPerType] of typesMap) {
+    for (const [variablesType, variablesPerType] of documentData.variables) {
       for (const [variableName, variableLocations] of variablesPerType) {
         const variableLocation = variableLocations.find((loc) => loc.range.contains(position));
         if (variableLocation) {
-          return [variableName, variablesType, variableLocation, variableLocations];
+          return {
+            name: variableName,
+            type: variablesType,
+            location: variableLocation,
+            locations: variableLocations,
+            scriptType: documentData.scriptType,
+          };
         }
       }
     }
-    return [];
+    return null; // Change from [] to null
   }
 
   updateVariableName(type: string, oldName: string, newName: string, document: vscode.TextDocument): void {
@@ -428,13 +445,13 @@ class VariableTracker {
     const normalizedNewName = newName.startsWith('$') ? newName.substring(1) : newName;
 
     // Retrieve the variable type map for the document
-    const typeMap = this.documentVariables.get(document.uri.toString());
-    if (!typeMap) {
+    const documentData = this.documentVariables.get(document.uri.toString());
+    if (!documentData) {
       return;
     }
 
     // Retrieve the variable map for the type
-    const variableMap = typeMap.get(type);
+    const variableMap = documentData.variables.get(type);
     if (!variableMap || !variableMap.has(normalizedOldName)) {
       return;
     }
@@ -453,23 +470,24 @@ class VariableTracker {
 
 const variableTracker = new VariableTracker();
 
-function isValidXmlDocument(document: vscode.TextDocument): boolean {
+function getDocumentScriptType(document: vscode.TextDocument): string {
+  let languageSubId: string = '';
   if (document.languageId !== 'xml') {
-    return false; // Only process XML files
+    return languageSubId; // Only process XML files
   }
 
   // Check if the languageSubId is already stored
   const cachedLanguageSubId = documentLanguageSubIdMap.get(document.uri.toString());
   if (cachedLanguageSubId) {
+    languageSubId = cachedLanguageSubId;
     if (exceedinglyVerbose) {
       console.log(`Using cached languageSubId: ${cachedLanguageSubId} for document: ${document.uri.toString()}`);
     }
-    return true; // If cached, no need to re-validate
+    return languageSubId; // If cached, no need to re-validate
   }
 
   const text = document.getText();
   const parser = sax.parser(true); // Use strict mode for validation
-  let languageSubId: string | null = null;
 
   parser.onopentag = (node) => {
     // Check if the root element is <aiscript> or <mdscript>
@@ -491,14 +509,15 @@ function isValidXmlDocument(document: vscode.TextDocument): boolean {
     if (exceedinglyVerbose) {
       console.log(`Cached languageSubId: ${languageSubId} for document: ${document.uri.toString()}`);
     }
-    return true;
+    return languageSubId;
   }
 
-  return false;
+  return languageSubId;
 }
 
 function trackVariablesInDocument(document: vscode.TextDocument): void {
-  if (!isValidXmlDocument(document)) {
+  const scriptType = getDocumentScriptType(document);
+  if (scriptType == '') {
     return; // Skip processing if the document is not valid
   }
 
@@ -528,7 +547,7 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
           const start = document.positionAt(attrStartIndex);
           const end = document.positionAt(attrStartIndex + variableName.length);
 
-          variableTracker.addVariable('normal', variableName, document.uri, new vscode.Range(start, end));
+          variableTracker.addVariable('normal', variableName, scriptType, document.uri, new vscode.Range(start, end));
         } else {
           tableIsFound = tableKeyPattern.test(attrValue);
           while (typeof attrValue === 'string' && (match = variablePattern.exec(attrValue)) !== null) {
@@ -554,9 +573,21 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
                 variableStartIndex == 0 ||
                 (text.charAt(variableStartIndex - 1) !== '.' && (tableIsFound == false || equalIsPreceding == true))
               ) {
-                variableTracker.addVariable('normal', variableName, document.uri, new vscode.Range(start, end));
+                variableTracker.addVariable(
+                  'normal',
+                  variableName,
+                  scriptType,
+                  document.uri,
+                  new vscode.Range(start, end)
+                );
               } else {
-                variableTracker.addVariable('tableKey', variableName, document.uri, new vscode.Range(start, end));
+                variableTracker.addVariable(
+                  'tableKey',
+                  variableName,
+                  scriptType,
+                  document.uri,
+                  new vscode.Range(start, end)
+                );
               }
             }
           }
@@ -1120,7 +1151,7 @@ export function activate(context: vscode.ExtensionContext) {
         document: vscode.TextDocument,
         position: vscode.Position
       ): Promise<vscode.Hover | undefined> => {
-        if (!isValidXmlDocument(document)) {
+        if (getDocumentScriptType(document) == '') {
           return undefined; // Skip if the document is not valid
         }
 
@@ -1172,16 +1203,16 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
-        if (variableAtPosition.length === 4) {
+        if (variableAtPosition !== null) {
           if (exceedinglyVerbose) {
-            console.log(`Hovering over variable: ${variableAtPosition[0]}`);
+            console.log(`Hovering over variable: ${variableAtPosition.name}`);
           }
           // Generate hover text for the variable
           const hoverText = new vscode.MarkdownString();
           hoverText.appendMarkdown(
-            `**${variableTypes[variableAtPosition[1]] || 'Variable'}:** \`${variableAtPosition[0]}\`\n\n`
+            `${scriptTypes[variableAtPosition.scriptType] || 'Script'} ${variableTypes[variableAtPosition.type] || 'Variable'}: \`${variableAtPosition.name}\`\n\n`
           );
-          return new vscode.Hover(hoverText, variableAtPosition[2].range); // Updated to use variableAtPosition[0].range
+          return new vscode.Hover(hoverText, variableAtPosition.location.range); // Updated to use variableAtPosition[0].range
         }
 
         const hoverWord = document.getText(document.getWordRangeAtPosition(position));
@@ -1225,13 +1256,12 @@ export function activate(context: vscode.ExtensionContext) {
 
   definitionProvider.provideDefinition = (document: vscode.TextDocument, position: vscode.Position) => {
     const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
-    if (variableAtPosition.length === 4) {
-      const locations = variableAtPosition[3];
+    if (variableAtPosition !== null) {
       if (exceedinglyVerbose) {
-        console.log(`Definition found for variable: ${variableAtPosition[0]}`);
-        console.log(`Locations:`, locations);
+        console.log(`Definition found for variable: ${variableAtPosition.name}`);
+        console.log(`Locations:`, variableAtPosition.locations);
       }
-      return locations.length > 0 ? locations[0] : undefined; // Return the first location or undefined
+      return variableAtPosition.locations.length > 0 ? variableAtPosition.locations[0] : undefined; // Return the first location or undefined
     }
     return undefined;
   };
@@ -1239,17 +1269,16 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerReferenceProvider(sel, {
       provideReferences(document: vscode.TextDocument, position: vscode.Position, context: vscode.ReferenceContext) {
-        if (!isValidXmlDocument(document)) {
+        if (getDocumentScriptType(document) == '') {
           return undefined; // Skip if the document is not valid
         }
         const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
-        if (variableAtPosition.length === 4) {
-          const locations = variableAtPosition[3];
+        if (variableAtPosition !== null) {
           if (exceedinglyVerbose) {
-            console.log(`References found for variable: ${variableAtPosition[0]}`);
-            console.log(`Locations:`, locations);
+            console.log(`References found for variable: ${variableAtPosition.name}`);
+            console.log(`Locations:`, variableAtPosition.locations);
           }
-          return locations;
+          return variableAtPosition.locations.length > 0 ? variableAtPosition.locations : []; // Return all locations or an empty array
         }
         return [];
       },
@@ -1259,14 +1288,14 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerRenameProvider(sel, {
       provideRenameEdits(document: vscode.TextDocument, position: vscode.Position, newName: string) {
-        if (!isValidXmlDocument(document)) {
+        if (getDocumentScriptType(document) == '') {
           return undefined; // Skip if the document is not valid
         }
         const variableAtPosition = variableTracker.getVariableAtPosition(document, position);
-        if (variableAtPosition.length === 4) {
-          const variableName = variableAtPosition[0];
-          const variableType = variableAtPosition[1];
-          const locations = variableAtPosition[3];
+        if (variableAtPosition !== null) {
+          const variableName = variableAtPosition.name;
+          const variableType = variableAtPosition.type;
+          const locations = variableAtPosition.locations;
 
           if (exceedinglyVerbose) {
             // Debug log: Print old name, new name, and locations
@@ -1304,20 +1333,20 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Track variables in open documents
   vscode.workspace.onDidOpenTextDocument((document) => {
-    if (isValidXmlDocument(document)) {
+    if (getDocumentScriptType(document)) {
       trackVariablesInDocument(document);
     }
   });
 
   // Refresh variable locations when a document is edited
   vscode.workspace.onDidChangeTextDocument((event) => {
-    if (isValidXmlDocument(event.document)) {
+    if (getDocumentScriptType(event.document)) {
       trackVariablesInDocument(event.document);
     }
   });
 
   vscode.workspace.onDidSaveTextDocument((document) => {
-    if (isValidXmlDocument(document)) {
+    if (getDocumentScriptType(document)) {
       trackVariablesInDocument(document);
     }
   });
@@ -1331,7 +1360,7 @@ export function activate(context: vscode.ExtensionContext) {
   });
   // Track variables in all currently open documents
   vscode.workspace.textDocuments.forEach((document) => {
-    if (isValidXmlDocument(document)) {
+    if (getDocumentScriptType(document)) {
       trackVariablesInDocument(document);
     }
   });
