@@ -16,6 +16,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onLanguage:lua"
   ],
   "main": "./out/extension.js",
@@ -48,6 +49,21 @@
           "type": "boolean",
           "default": false,
           "description": "Spams the log with info on autocomplete options. Useful for development and debugging, and not much else. May degrade performance significantly."
+        },
+        "x4CodeComplete-lua.loadLuaFunctionsFromWiki": {
+          "type": "boolean",
+          "default": true,
+          "description": "Load Lua functions descriptions from the Community Wiki."
+        },
+        "x4CodeComplete-lua.luaFunctionWikiUrl": {
+          "type": "string",
+          "default": "https://wiki.egosoft.com:1337/X%20Rebirth%20Wiki/Modding%20support/UI%20Modding%20support/Lua%20function%20overview/",
+          "description": "URL of the Lua function overview on the Community Wiki."
+        },
+        "x4CodeComplete-lua.reloadLuaFunctionsFromWiki": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reload Lua functions descriptions from the Community Wiki when toggled."
         }
       }
     }
@@ -80,6 +96,8 @@
     "vscode": "^1.1.34"
   },
   "dependencies": {
+    "jsdom": "^26.0.0",
+    "turndown": "^7.2.0",
     "xml2js": "^0.6.2",
     "xml2js-xpath": "^0.13.0"
   }
