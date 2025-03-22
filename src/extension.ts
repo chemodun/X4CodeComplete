@@ -10,16 +10,16 @@ import TurndownService from 'turndown'; // Import TurndownService
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
-var exceedinglyVerbose: boolean = false;
-var limitLanguage: boolean = false;
-var rootpath: string;
-var extensionsFolder: string;
-let languageFiles: Map<string, any> = new Map();
+let exceedinglyVerbose: boolean = false;
+let limitLanguage: boolean = false;
+let rootpath: string;
+let extensionsFolder: string;
+const languageFiles: Map<string, any> = new Map();
 let luaFunctionInfo: Map<string, string> = new Map();
-let luaTypeDefinitions: Map<string, string> = new Map(); // Store type definitions
-let LuaFunctionCompletionItems: vscode.CompletionItem[] = [];
+const luaTypeDefinitions: Map<string, string> = new Map(); // Store type definitions
+const LuaFunctionCompletionItems: vscode.CompletionItem[] = [];
 // Register Lua-specific features
-let sel: vscode.DocumentSelector = { language: 'lua' };
+const sel: vscode.DocumentSelector = { language: 'lua' };
 
 // Initialize TurndownService
 const turndownService = new TurndownService();
@@ -37,36 +37,6 @@ function validateSettings(config: vscode.WorkspaceConfiguration): boolean {
   });
 
   return isValid;
-}
-
-function findRelevantPortion(text: string) {
-  let pos = Math.max(text.lastIndexOf('.'), text.lastIndexOf('"', text.length - 2));
-  if (pos === -1) {
-    return null;
-  }
-  let newToken = text.substring(pos + 1);
-  if (newToken.endsWith('"')) {
-    newToken = newToken.substring(0, newToken.length - 1);
-  }
-  let prevPos = Math.max(text.lastIndexOf('.', pos - 1), text.lastIndexOf('"', pos - 1));
-  // TODO something better
-  if (text.length - pos > 3 && prevPos === -1) {
-    return ['', newToken];
-  }
-  let prevToken = text.substring(prevPos + 1, pos);
-  return [prevToken, newToken];
-}
-
-class TypeEntry {
-  properties: Map<string, string> = new Map<string, string>();
-  supertype?: string;
-  literals: Set<string> = new Set<string>();
-  addProperty(value: string, type: string = '') {
-    this.properties.set(value, type);
-  }
-  addLiteral(value: string) {
-    this.literals.add(value);
-  }
 }
 
 // load and parse language files
@@ -134,7 +104,7 @@ function findLanguageText(pageId: string, textId: string): string {
     fileNumber: string;
     text: string;
   }
-  let allMatches: Match[] = [];
+  const allMatches: Match[] = [];
 
   for (const [filePath, xmlData] of languageFiles) {
     // To process the diff format of the translation files
@@ -243,7 +213,7 @@ function parseFfiBlock(lines: string[]) {
   const typeDefinitionStartPattern = /^typedef\s+(struct|enum|union)\s*\{\s*$/;
   const typeDefinitionEndPattern = /^\}\s+(\w+);$/;
   const typeDefinitionPattern = /^typedef\s+(struct|enum|union|\w+)(\s+\{.*\}|\s+)\s*(\w+);$/;
-  const functionDefinitionPattern = /^(?:([\w\s\*]+)\s+)?(\w+)\s*\((.*?)\);$/;
+  const functionDefinitionPattern = /^(?:([\w\s*]+)\s+)?(\w+)\s*\((.*?)\);$/;
 
   lines.forEach((line) => {
     if (typedefBuffer.length > 0 || typeDefinitionStartPattern.test(line) || typeDefinitionPattern.test(line)) {
@@ -475,7 +445,7 @@ async function fetchLuaFunctionInfoFromWiki(context: vscode.ExtensionContext, fo
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  let config = vscode.workspace.getConfiguration('x4CodeComplete-lua');
+  const config = vscode.workspace.getConfiguration('x4CodeComplete-lua');
   if (!config || !validateSettings(config)) {
     return;
   }
