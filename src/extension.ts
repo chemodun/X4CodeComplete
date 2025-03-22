@@ -9,12 +9,11 @@ import * as sax from 'sax';
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
-var debug = false;
-var exceedinglyVerbose: boolean = false;
-var limitLanguage: boolean = false;
-var rootpath: string;
-var scriptPropertiesPath: string;
-var extensionsFolder: string;
+const debug = false;
+let exceedinglyVerbose: boolean = false;
+let rootpath: string;
+let scriptPropertiesPath: string;
+let extensionsFolder: string;
 let languageData: Map<string, Map<string, string>> = new Map();
 
 // Map to store languageSubId for each document
@@ -46,7 +45,7 @@ function validateSettings(config: vscode.WorkspaceConfiguration): boolean {
 }
 
 function findRelevantPortion(text: string) {
-  let pos = Math.max(text.lastIndexOf('.'), text.lastIndexOf('"', text.length - 2));
+  const pos = Math.max(text.lastIndexOf('.'), text.lastIndexOf('"', text.length - 2));
   if (pos === -1) {
     return null;
   }
@@ -54,12 +53,12 @@ function findRelevantPortion(text: string) {
   if (newToken.endsWith('"')) {
     newToken = newToken.substring(0, newToken.length - 1);
   }
-  let prevPos = Math.max(text.lastIndexOf('.', pos - 1), text.lastIndexOf('"', pos - 1));
+  const prevPos = Math.max(text.lastIndexOf('.', pos - 1), text.lastIndexOf('"', pos - 1));
   // TODO something better
   if (text.length - pos > 3 && prevPos === -1) {
     return ['', newToken];
   }
-  let prevToken = text.substring(prevPos + 1, pos);
+  const prevToken = text.substring(prevPos + 1, pos);
   return [prevToken, newToken];
 }
 
@@ -78,8 +77,8 @@ class TypeEntry {
 class CompletionDict implements vscode.CompletionItemProvider {
   typeDict: Map<string, TypeEntry> = new Map<string, TypeEntry>();
   addType(key: string, supertype?: string): void {
-    let k = cleanStr(key);
-    var entry = this.typeDict.get(k);
+    const k = cleanStr(key);
+    let entry = this.typeDict.get(k);
     if (entry === undefined) {
       entry = new TypeEntry();
       this.typeDict.set(k, entry);
@@ -90,9 +89,9 @@ class CompletionDict implements vscode.CompletionItemProvider {
   }
 
   addTypeLiteral(key: string, val: string): void {
-    let k = cleanStr(key);
-    let v = cleanStr(val);
-    var entry = this.typeDict.get(k);
+    const k = cleanStr(key);
+    const v = cleanStr(val);
+    let entry = this.typeDict.get(k);
     if (entry === undefined) {
       entry = new TypeEntry();
       this.typeDict.set(k, entry);
@@ -101,8 +100,8 @@ class CompletionDict implements vscode.CompletionItemProvider {
   }
 
   addProperty(key: string, prop: string, type?: string): void {
-    let k = cleanStr(key);
-    var entry = this.typeDict.get(k);
+    const k = cleanStr(key);
+    let entry = this.typeDict.get(k);
     if (entry === undefined) {
       entry = new TypeEntry();
       this.typeDict.set(k, entry);
@@ -123,7 +122,7 @@ class CompletionDict implements vscode.CompletionItemProvider {
       return;
     }
 
-    let result = new vscode.CompletionItem(complete);
+    const result = new vscode.CompletionItem(complete);
     if (info !== undefined) {
       result.detail = info;
     } else {
@@ -184,7 +183,7 @@ class CompletionDict implements vscode.CompletionItemProvider {
     if (exceedinglyVerbose) {
       console.log('Building Type: ', typeName, 'depth: ', depth, 'prefix: ', prefix);
     }
-    let entry = this.typeDict.get(typeName);
+    const entry = this.typeDict.get(typeName);
     if (entry === undefined) {
       return;
     }
@@ -224,23 +223,23 @@ class CompletionDict implements vscode.CompletionItemProvider {
     if (getDocumentScriptType(document) == '') {
       return undefined; // Skip if the document is not valid
     }
-    let items = new Map<string, vscode.CompletionItem>();
-    let prefix = document.lineAt(position).text.substring(0, position.character);
-    let interesting = findRelevantPortion(prefix);
+    const items = new Map<string, vscode.CompletionItem>();
+    const prefix = document.lineAt(position).text.substring(0, position.character);
+    const interesting = findRelevantPortion(prefix);
     if (interesting === null) {
       if (exceedinglyVerbose) {
         console.log('no relevant portion detected');
       }
       return this.makeCompletionList(items);
     }
-    let prevToken = interesting[0];
-    let newToken = interesting[1];
+    const prevToken = interesting[0];
+    const newToken = interesting[1];
     if (exceedinglyVerbose) {
       console.log('Previous token: ', interesting[0], ' New token: ', interesting[1]);
     }
     // If we have a previous token & it's in the typeDictionary, only use that's entries
     if (prevToken !== '') {
-      let entry = this.typeDict.get(prevToken);
+      const entry = this.typeDict.get(prevToken);
       if (entry === undefined) {
         if (exceedinglyVerbose) {
           console.log('Missing previous token!');
@@ -273,9 +272,9 @@ class CompletionDict implements vscode.CompletionItemProvider {
       if (exceedinglyVerbose) {
         console.log('Matching bracketed type');
       }
-      let token = prevToken.substring(1);
+      const token = prevToken.substring(1);
 
-      let entry = this.typeDict.get(token);
+      const entry = this.typeDict.get(token);
       if (entry === undefined) {
         if (exceedinglyVerbose) {
           console.log('Failed to match bracketed type');
@@ -305,27 +304,27 @@ class LocationDict implements vscode.DefinitionProvider {
   dict: Map<string, vscode.Location> = new Map<string, vscode.Location>();
 
   addLocation(name: string, file: string, start: vscode.Position, end: vscode.Position): void {
-    let range = new vscode.Range(start, end);
-    let uri = vscode.Uri.parse('file://' + file);
+    const range = new vscode.Range(start, end);
+    const uri = vscode.Uri.parse('file://' + file);
     this.dict.set(cleanStr(name), new vscode.Location(uri, range));
   }
   addLocationForRegexMatch(rawData: string, rawIdx: number, name: string) {
     // make sure we don't care about platform & still count right https://stackoverflow.com/a/8488787
-    let line = rawData.substring(0, rawIdx).split(/\r\n|\r|\n/).length - 1;
-    let startIdx = Math.max(rawData.lastIndexOf('\n', rawIdx), rawData.lastIndexOf('\r', rawIdx));
-    let start = new vscode.Position(line, rawIdx - startIdx);
-    let endIdx = rawData.indexOf('>', rawIdx) + 2;
-    let end = new vscode.Position(line, endIdx - rawIdx);
+    const line = rawData.substring(0, rawIdx).split(/\r\n|\r|\n/).length - 1;
+    const startIdx = Math.max(rawData.lastIndexOf('\n', rawIdx), rawData.lastIndexOf('\r', rawIdx));
+    const start = new vscode.Position(line, rawIdx - startIdx);
+    const endIdx = rawData.indexOf('>', rawIdx) + 2;
+    const end = new vscode.Position(line, endIdx - rawIdx);
     this.addLocation(name, scriptPropertiesPath, start, end);
   }
 
   addNonPropertyLocation(rawData: string, name: string, tagType: string): void {
-    let rawIdx = rawData.search('<' + tagType + ' name="' + escapeRegex(name) + '"[^>]*>');
+    const rawIdx = rawData.search('<' + tagType + ' name="' + escapeRegex(name) + '"[^>]*>');
     this.addLocationForRegexMatch(rawData, rawIdx, name);
   }
 
   addPropertyLocation(rawData: string, name: string, parent: string, parentType: string): void {
-    let re = new RegExp(
+    const re = new RegExp(
       '(?:<' +
         parentType +
         ' name="' +
@@ -335,12 +334,12 @@ class LocationDict implements vscode.DefinitionProvider {
         '"[^>]*>)',
       's'
     );
-    let matches = rawData.match(re);
+    const matches = rawData.match(re);
     if (matches === null || matches.index === undefined) {
       console.log("strangely couldn't find property named:", name, 'parent:', parent);
       return;
     }
-    let rawIdx = matches.index + matches[0].indexOf(matches[1]);
+    const rawIdx = matches.index + matches[0].indexOf(matches[1]);
     this.addLocationForRegexMatch(rawData, rawIdx, parent + '.' + name);
   }
 
@@ -348,9 +347,9 @@ class LocationDict implements vscode.DefinitionProvider {
     if (getDocumentScriptType(document) == '') {
       return undefined; // Skip if the document is not valid
     }
-    let line = document.lineAt(position).text;
-    let start = line.lastIndexOf('"', position.character);
-    let end = line.indexOf('"', position.character);
+    const line = document.lineAt(position).text;
+    const start = line.lastIndexOf('"', position.character);
+    const end = line.indexOf('"', position.character);
     let relevant = line.substring(start, end).trim().replace('"', '');
     do {
       if (this.dict.has(relevant)) {
@@ -565,7 +564,7 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
               const end = document.positionAt(variableStartIndex + match[0].length);
               let equalIsPreceding = false;
               if (tableIsFound) {
-                const equalsPattern = /=[^\%,]*$/;
+                const equalsPattern = /=[^%,]*$/;
                 const precedingText = text.substring(attrStartIndex, variableStartIndex);
                 equalIsPreceding = equalsPattern.test(precedingText);
               }
@@ -609,13 +608,13 @@ function trackVariablesInDocument(document: vscode.TextDocument): void {
   parser.write(text).close();
 }
 
-let completionProvider = new CompletionDict();
-let definitionProvider = new LocationDict();
+const completionProvider = new CompletionDict();
+const definitionProvider = new LocationDict();
 
 function readScriptProperties(filepath: string) {
   console.log('Attempting to read scriptproperties.xml');
   // Can't move on until we do this so use sync version
-  let rawData = fs.readFileSync(filepath).toString();
+  const rawData = fs.readFileSync(filepath).toString();
   let keywords = [] as Keyword[];
   let datatypes = [] as Datatype[];
 
@@ -645,7 +644,7 @@ function escapeRegex(text: string) {
 }
 
 function processProperty(rawData: string, parent: string, parentType: string, prop: ScriptProperty) {
-  let name = prop.$.name;
+  const name = prop.$.name;
   if (exceedinglyVerbose) {
     console.log('\tProperty read: ', name);
   }
@@ -654,17 +653,17 @@ function processProperty(rawData: string, parent: string, parentType: string, pr
 }
 
 function processKeyword(rawData: string, e: Keyword) {
-  let name = e.$.name;
+  const name = e.$.name;
   definitionProvider.addNonPropertyLocation(rawData, name, 'keyword');
   if (exceedinglyVerbose) {
     console.log('Keyword read: ' + name);
   }
 
   if (e.import !== undefined) {
-    let imp = e.import[0];
-    let src = imp.$.source;
-    let select = imp.$.select;
-    let tgtName = imp.property[0].$.name;
+    const imp = e.import[0];
+    const src = imp.$.source;
+    const select = imp.$.select;
+    const tgtName = imp.property[0].$.name;
     processKeywordImport(name, src, select, tgtName);
   } else if (e.property !== undefined) {
     e.property.forEach((prop) => processProperty(rawData, name, 'keyword', prop));
@@ -675,16 +674,16 @@ interface XPathResult {
   $: { [key: string]: string };
 }
 function processKeywordImport(name: string, src: string, select: string, targetName: string) {
-  let path = rootpath + '/libraries/' + src;
+  const path = rootpath + '/libraries/' + src;
   console.log('Attempting to import: ' + src);
   // Can't move on until we do this so use sync version
-  let rawData = fs.readFileSync(path).toString();
+  const rawData = fs.readFileSync(path).toString();
   xml2js.parseString(rawData, function (err: any, result: any) {
     if (err !== null) {
       vscode.window.showErrorMessage('Error during parsing of ' + src + err);
     }
 
-    var matches = xpath.find(result, select + '/' + targetName);
+    const matches = xpath.find(result, select + '/' + targetName);
     matches.forEach((element: XPathResult) => {
       completionProvider.addTypeLiteral(name, element.$[targetName.substring(1)]);
     });
@@ -733,7 +732,7 @@ interface Datatype {
 }
 
 function processDatatype(rawData: any, e: Datatype) {
-  let name = e.$.name;
+  const name = e.$.name;
   definitionProvider.addNonPropertyLocation(rawData, name, 'datatype');
   if (exceedinglyVerbose) {
     console.log('Datatype read: ' + name);
@@ -747,7 +746,7 @@ function processDatatype(rawData: any, e: Datatype) {
 
 // Process all keywords in the XML
 function processKeywords(rawData: string, keywords: any[]): Keyword[] {
-  let processedKeywords: Keyword[] = [];
+  const processedKeywords: Keyword[] = [];
   keywords.forEach((e: Keyword) => {
     processKeyword(rawData, e);
     processedKeywords.push(e); // Add processed keyword to the array
@@ -757,7 +756,7 @@ function processKeywords(rawData: string, keywords: any[]): Keyword[] {
 
 // Process all datatypes in the XML
 function processDatatypes(rawData: string, datatypes: any[]): Datatype[] {
-  let processedDatatypes: Datatype[] = [];
+  const processedDatatypes: Datatype[] = [];
   datatypes.forEach((e: Datatype) => {
     processDatatype(rawData, e);
     processedDatatypes.push(e); // Add processed datatype to the array
@@ -768,8 +767,8 @@ function processDatatypes(rawData: string, datatypes: any[]): Datatype[] {
 // load and parse language files
 function loadLanguageFiles(basePath: string, extensionsFolder: string): Promise<void> {
   const config = vscode.workspace.getConfiguration('x4CodeComplete');
-  let preferredLanguage: string = config.get('languageNumber') || '44';
-  const limitLanguage: Boolean = config.get('limitLanguageOutput') || false;
+  const preferredLanguage: string = config.get('languageNumber') || '44';
+  const limitLanguage: boolean = config.get('limitLanguageOutput') || false;
   languageData = new Map();
   console.log('Loading Language Files. %s', Date.now());
   return new Promise((resolve, reject) => {
@@ -804,7 +803,8 @@ function loadLanguageFiles(basePath: string, extensionsFolder: string): Promise<
 
         for (const file of files) {
           const languageId = getLanguageIdFromFileName(file);
-          if (limitLanguage && languageId !== preferredLanguage && languageId !== '*' && languageId !== '44') { // always show 0001.xml and 0001-0044.xml (any language and english, to assist with creating translations)
+          if (limitLanguage && languageId !== preferredLanguage && languageId !== '*' && languageId !== '44') {
+            // always show 0001.xml and 0001-0044.xml (any language and english, to assist with creating translations)
             continue;
           }
           const filePath = path.join(tDir, file);
@@ -851,7 +851,7 @@ function parseLanguageFile(filePath: string, onComplete: () => void) {
   let currentPageId: string | null = null;
   let currentTextId: string | null = null;
   const fileName: string = path.basename(filePath);
-  let languageId: string = getLanguageIdFromFileName(fileName);
+  const languageId: string = getLanguageIdFromFileName(fileName);
 
   parser.on('opentag', (node) => {
     if (node.name === 'page' && node.attributes.id) {
@@ -864,7 +864,7 @@ function parseLanguageFile(filePath: string, onComplete: () => void) {
   parser.on('text', (text) => {
     if (currentPageId && currentTextId) {
       const key = `${currentPageId}:${currentTextId}`;
-      let textData: Map<string, string> = languageData.get(key) || new Map<string, string>();
+      const textData: Map<string, string> = languageData.get(key) || new Map<string, string>();
       textData.set(languageId, text.trim());
       languageData.set(key, textData);
     }
@@ -893,12 +893,12 @@ function parseLanguageFile(filePath: string, onComplete: () => void) {
 function findLanguageText(pageId: string, textId: string): string {
   const config = vscode.workspace.getConfiguration('x4CodeComplete');
   let preferredLanguage: string = config.get('languageNumber') || '44';
-  const limitLanguage: Boolean = config.get('limitLanguageOutput') || false;
+  const limitLanguage: boolean = config.get('limitLanguageOutput') || false;
 
   const textData: Map<string, string> = languageData.get(`${pageId}:${textId}`);
   let result: string = '';
   if (textData) {
-    let textDataKeys = Array.from(textData.keys()).sort((a, b) =>
+    const textDataKeys = Array.from(textData.keys()).sort((a, b) =>
       a === preferredLanguage
         ? -1
         : b === preferredLanguage
@@ -1032,11 +1032,11 @@ function generateHoverWordText(hoverWord: string, keywords: Keyword[], datatypes
   }
 
   // A map to group matches by the header name
-  let groupedMatches: { [key: string]: GroupedMatch } = {};
+  const groupedMatches: { [key: string]: GroupedMatch } = {};
 
   // Process matching keywords
   matchingKeynames.forEach((k: Keyword) => {
-    let header = k.$.name;
+    const header = k.$.name;
 
     // Initialize the header if not already present
     if (!groupedMatches[header]) {
@@ -1073,7 +1073,7 @@ function generateHoverWordText(hoverWord: string, keywords: Keyword[], datatypes
 
   // Process matching datatypes
   matchingDatatypes.forEach((d: Datatype) => {
-    let header = d.$.name;
+    const header = d.$.name;
     if (!groupedMatches[header]) {
       groupedMatches[header] = {
         description: [],
@@ -1160,9 +1160,9 @@ export function activate(context: vscode.ExtensionContext) {
       let datatypes = [] as Keyword[];
       ({ keywords, datatypes } = readScriptProperties(scriptPropertiesPath));
 
-      let sel: vscode.DocumentSelector = { language: 'xml' };
+      const sel: vscode.DocumentSelector = { language: 'xml' };
 
-      let disposableCompleteProvider = vscode.languages.registerCompletionItemProvider(
+      const disposableCompleteProvider = vscode.languages.registerCompletionItemProvider(
         sel,
         completionProvider,
         '.',
@@ -1171,7 +1171,7 @@ export function activate(context: vscode.ExtensionContext) {
       );
       context.subscriptions.push(disposableCompleteProvider);
 
-      let disposableDefinitionProvider = vscode.languages.registerDefinitionProvider(sel, definitionProvider);
+      const disposableDefinitionProvider = vscode.languages.registerDefinitionProvider(sel, definitionProvider);
       context.subscriptions.push(disposableDefinitionProvider);
 
       // Hover provider to display tooltips
