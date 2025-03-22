@@ -855,9 +855,9 @@ function parseLanguageFile(filePath: string, onComplete: () => void) {
 
   parser.on('opentag', (node) => {
     if (node.name === 'page' && node.attributes.id) {
-      currentPageId = node.attributes.id;
+      currentPageId = node.attributes.id as string;
     } else if (node.name === 't' && currentPageId && node.attributes.id) {
-      currentTextId = node.attributes.id;
+      currentTextId = node.attributes.id as string;
     }
   });
 
