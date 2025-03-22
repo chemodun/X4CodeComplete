@@ -18,6 +18,8 @@ let languageFiles: Map<string, any> = new Map();
 let luaFunctionInfo: Map<string, string> = new Map();
 let luaTypeDefinitions: Map<string, string> = new Map(); // Store type definitions
 let LuaFunctionCompletionItems: vscode.CompletionItem[] = [];
+// Register Lua-specific features
+let sel: vscode.DocumentSelector = { language: 'lua' };
 
 // Initialize TurndownService
 const turndownService = new TurndownService();
@@ -314,7 +316,7 @@ function parseFfiBlock(lines: string[]) {
 }
 
 // Load and parse Lua files for ffi.cdef type and function definitions in a single pass
-function loadLuaDefinitions(basePath: string) {
+function loadLuaFunctionsInfoFromLocalFiles(basePath: string) {
   console.log('Loading Lua Definitions (types and functions) from local Lua files');
   const uiFolderPath = path.join(basePath, 'ui');
   if (!fs.existsSync(uiFolderPath) || !fs.statSync(uiFolderPath).isDirectory()) {
@@ -342,26 +344,41 @@ function loadLuaDefinitions(basePath: string) {
       console.error(`Error reading or parsing Lua file: ${filePath}, Error: ${error.message}`);
     }
   });
-
   console.log(
     `Loaded ${luaFunctionInfo.size - previousLuaFunctionCount} Lua functions and ${luaTypeDefinitions.size} type definitions.`
   );
+  luaFunctionInfo.forEach((description, functionName) => {
+    const item = new vscode.CompletionItem(functionName, vscode.CompletionItemKind.Function);
+    item.detail = 'EGOSOFT Lua Function';
+    item.documentation = new vscode.MarkdownString(description);
+    LuaFunctionCompletionItems.push(item);
+  });
 }
 
 // Fetch and parse non-standard Lua function information
-async function fetchLuaFunctionInfo(context: vscode.ExtensionContext, forceRefresh: boolean = false) {
+async function fetchLuaFunctionInfoFromWiki(context: vscode.ExtensionContext, forceRefresh: boolean = false) {
+  luaFunctionInfo = new Map(); // Clear existing data
+  const config = vscode.workspace.getConfiguration('x4CodeComplete-lua');
+  const loadFromWiki = config.get('loadLuaFunctionsFromWiki') || false;
+  const wikiUrl = config.get('luaFunctionWikiUrl') || '';
+
+  if (!loadFromWiki) {
+    console.log('Loading Lua functions from the Community Wiki is disabled.');
+    loadLuaFunctionsInfoFromLocalFiles(rootpath);
+    return;
+  }
+
   if (!forceRefresh) {
     loadParsedDataFromGlobalState(context);
     if (luaFunctionInfo.size > 0) {
+      loadLuaFunctionsInfoFromLocalFiles(rootpath);
       return; // Use cached data if available
     }
   }
 
-  const url =
-    'https://wiki.egosoft.com:1337/X%20Rebirth%20Wiki/Modding%20support/UI%20Modding%20support/Lua%20function%20overview/';
   try {
     https
-      .get(url, (res) => {
+      .get(wikiUrl, (res) => {
         let data = '';
 
         // Collect data chunks
@@ -444,13 +461,16 @@ async function fetchLuaFunctionInfo(context: vscode.ExtensionContext, forceRefre
 
           console.log(`Fetched ${luaFunctionInfo.size} Lua functions from the website.`);
           saveParsedDataToGlobalState(context); // Save the parsed data
+          loadLuaFunctionsInfoFromLocalFiles(rootpath); // Load Lua definitions (types and functions) after fetching
         });
       })
       .on('error', (err) => {
         console.error(`Failed to fetch Lua function information: ${err.message}`);
+        loadLuaFunctionsInfoFromLocalFiles(rootpath);
       });
   } catch (error) {
     console.error(`Unexpected error while fetching Lua function information: ${error}`);
+    loadLuaFunctionsInfoFromLocalFiles(rootpath);
   }
 }
 
@@ -467,22 +487,9 @@ export function activate(context: vscode.ExtensionContext) {
   // Load language files
   loadLanguageFiles(rootpath, extensionsFolder);
 
-  // Fetch Lua function information on activation
-  fetchLuaFunctionInfo(context).then(() => {
-    // Load Lua definitions (types and functions) after fetching
-    loadLuaDefinitions(rootpath);
-  });
+  // Fetch Lua function information on startup
+  fetchLuaFunctionInfoFromWiki(context);
 
-  luaFunctionInfo.forEach((description, functionName) => {
-    const item = new vscode.CompletionItem(functionName, vscode.CompletionItemKind.Function);
-    item.detail = 'EGOSOFT Lua Function';
-    item.documentation = new vscode.MarkdownString(description);
-    LuaFunctionCompletionItems.push(item);
-  });
-
-  let sel: vscode.DocumentSelector = { language: 'lua' };
-
-  // Hover provider to display tooltips
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(sel, {
       provideHover: async (
@@ -551,14 +558,42 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Register completion provider for Lua
   context.subscriptions.push(
-    vscode.languages.registerCompletionItemProvider(
-      { language: 'lua' },
-      {
-        provideCompletionItems(document: vscode.TextDocument, position: vscode.Position): vscode.CompletionItem[] {
-          return LuaFunctionCompletionItems;
-        },
+    vscode.languages.registerCompletionItemProvider(sel, {
+      provideCompletionItems(document: vscode.TextDocument, position: vscode.Position): vscode.CompletionItem[] {
+        return LuaFunctionCompletionItems;
+      },
+    })
+  );
+
+  // React to configuration changes
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('x4CodeComplete-lua')) {
+        console.log('Configuration changed. Reloading settings...');
+        const config = vscode.workspace.getConfiguration('x4CodeComplete-lua');
+
+        // Reload Lua functions if the reload flag is toggled
+        if (event.affectsConfiguration('x4CodeComplete-lua.reloadLuaFunctionsFromWiki')) {
+          if (config.get('reloadLuaFunctionsFromWiki') === true && config.get('loadLuaFunctionsFromWiki') === true) {
+            console.log('Reloading Lua functions from the Community Wiki...');
+            fetchLuaFunctionInfoFromWiki(context, true);
+          }
+          // Reset the reload flag to false after reloading
+          // Left it there, because if it made twice (after set by user and reset by extension),
+          // the changes is visible in configuration. It's strange, but ...
+          vscode.workspace
+            .getConfiguration()
+            .update('x4CodeComplete-lua.reloadLuaFunctionsFromWiki', false, vscode.ConfigurationTarget.Global);
+        }
+        if (event.affectsConfiguration('x4CodeComplete-lua.loadLuaFunctionsFromWiki')) {
+          fetchLuaFunctionInfoFromWiki(context, config.get('loadLuaFunctionsFromWiki') === true);
+        }
+        if (event.affectsConfiguration('x4CodeComplete-lua.unpackedFileLocation')) {
+          rootpath = config.get('unpackedFileLocation');
+          fetchLuaFunctionInfoFromWiki(context);
+        }
       }
-    )
+    })
   );
 }
 
